@@ -9,6 +9,10 @@ const {
     enviarHeartbeat,
     iniciarHeartbeat,
     detenerHeartbeat,
+    actualizarEstadoHeartbeat,
+    registrarPublicacionExitosa,
+    registrarPublicacionFallida,
+    registrarReintento,
 } = require('./heartbeat');
 
 // Navegador/página de WhatsApp administrados por el bot, igual que Facebook.
@@ -743,6 +747,11 @@ function marcarDestinoComoEnviado(
 
     estado[clave] = registro;
     guardarJson(ARCHIVO_ESTADO, estado);
+
+    registrarPublicacionExitosa(
+        publicacion,
+        destino
+    );
 }
 
 function marcarFacebookGrupoComoEnviado(
@@ -776,6 +785,11 @@ function marcarFacebookGrupoComoEnviado(
 
     estado[clave] = registro;
     guardarJson(ARCHIVO_ESTADO, estado);
+
+    registrarPublicacionExitosa(
+        publicacion,
+        'facebook'
+    );
 }
 
 // ============================================================
@@ -6106,6 +6120,7 @@ async function publicarEnFacebookConReintentos(
             } catch (_) {}
 
             if (intento < FACEBOOK_REINTENTOS) {
+                registrarReintento();
                 console.log(`[Facebook] Esperando ${FACEBOOK_ESPERA_REINTENTO_MS / 1000} segundos...`);
                 await esperar(FACEBOOK_ESPERA_REINTENTO_MS);
             }
@@ -6351,6 +6366,9 @@ async function procesarPublicaciones(
             );
 
             if (siguiente) {
+                actualizarEstadoHeartbeat({
+                    nextPublication: siguiente,
+                });
 
                 console.log(
                     `[${horaActual}] ` +
@@ -6360,6 +6378,9 @@ async function procesarPublicaciones(
                 );
 
             } else {
+                actualizarEstadoHeartbeat({
+                    nextPublication: null,
+                });
 
                 console.log(
                     `[${horaActual}] ` +
@@ -6376,6 +6397,9 @@ async function procesarPublicaciones(
             '='.repeat(70)
         );
 
+        actualizarEstadoHeartbeat({
+            nextPublication: publicacionesPendientes[0] || null,
+        });
         console.log(
             `[${horaActual}] ` +
             `PUBLICACIONES PENDIENTES: ` +
@@ -6479,6 +6503,11 @@ async function procesarPublicaciones(
                         }
 
                     } catch (error) {
+                        registrarPublicacionFallida(
+                            publicacion,
+                            'whatsapp',
+                            error
+                        );
 
                         console.error('');
                         console.error(
@@ -6649,6 +6678,11 @@ async function procesarPublicaciones(
                                 continue;
 
                             } catch (error) {
+                                registrarPublicacionFallida(
+                                    publicacion,
+                                    'facebook',
+                                    error
+                                );
                                 console.error('');
                                 console.error(
                                     `ERROR FACEBOOK - ID ${publicacion.id}: no se pudo crear/publicar en el flujo de grupos.`
@@ -6701,6 +6735,11 @@ async function procesarPublicaciones(
                                 }
 
                             } catch (error) {
+                                registrarPublicacionFallida(
+                                    publicacion,
+                                    'facebook',
+                                    error
+                                );
                                 console.error('');
                                 console.error(
                                     `ERROR FACEBOOK - ID ${publicacion.id} GRUPO "${grupoFacebook.nombre}":`
@@ -6712,6 +6751,11 @@ async function procesarPublicaciones(
                 }
 
             } catch (error) {
+                registrarPublicacionFallida(
+                    publicacion,
+                    'bot',
+                    error
+                );
 
                 console.error('');
                 console.error(
@@ -6994,6 +7038,36 @@ async function iniciar() {
                 `Estado: ${statusSession} ` +
                 `Sesión: ${session}`
             );
+
+            const estadoWpp = String(statusSession || '').toLowerCase();
+
+            if (
+                ['islogged', 'inchat', 'qrreadsuccess'].includes(estadoWpp)
+            ) {
+                actualizarEstadoHeartbeat({
+                    whatsapp: 'connected',
+                    status: 'online',
+                    message: 'WhatsApp conectado',
+                });
+            } else if (
+                [
+                    'desconnectedmobile',
+                    'browserclose',
+                    'device_not_connected',
+                    'devicenotconnected',
+                    'serverwssnotconnected',
+                    'delete_token',
+                    'deletetoken',
+                ].includes(estadoWpp)
+            ) {
+                actualizarEstadoHeartbeat({
+                    whatsapp: 'disconnected',
+                    status: 'error',
+                    message: 'WhatsApp desconectado: ' + statusSession,
+                    lastError: 'WhatsApp desconectado: ' + statusSession,
+                    lastErrorAt: new Date().toISOString(),
+                });
+            }
         },
 
         disableWelcome: true,
@@ -7010,6 +7084,14 @@ async function iniciar() {
     });
 
     whatsappClient = client;
+
+    actualizarEstadoHeartbeat({
+        whatsapp: 'connected',
+        status: 'online',
+        message: 'WhatsApp conectado correctamente',
+    });
+
+    iniciarHeartbeat('online');
 
     // ========================================================
     // LARAVEL
@@ -7048,10 +7130,23 @@ async function iniciar() {
         try {
             await iniciarFacebook();
 
+            actualizarEstadoHeartbeat({
+                facebook: 'connected',
+                status: 'online',
+                message: 'WhatsApp y Facebook conectados',
+            });
+
             try {
                 await sincronizarGruposFacebook();
                 iniciarSincronizacionPeriodicaGruposFacebook();
             } catch (error) {
+            actualizarEstadoHeartbeat({
+                facebook: 'error',
+                status: 'error',
+                message: 'Facebook no disponible: ' + error.message,
+                lastError: 'Facebook: ' + error.message,
+                lastErrorAt: new Date().toISOString(),
+            });
                 console.error('[Facebook] Error durante la sincronización inicial de grupos:', error.message);
             }
         } catch (error) {
@@ -7096,14 +7191,22 @@ async function iniciar() {
         client
     );
 
-    await enviarHeartbeat('online', {
-        message: 'WhatsApp conectado correctamente',
-        metadata: {
-            whatsapp: 'connected',
-        },
+    actualizarEstadoHeartbeat({
+        whatsapp: 'connected',
+        facebook: facebookDisponible
+            ? 'connected'
+            : (FACEBOOK_ENABLED ? 'error' : 'disabled'),
+        status:
+            facebookDisponible || !FACEBOOK_ENABLED
+                ? 'online'
+                : 'error',
+        message:
+            facebookDisponible
+                ? 'WhatsApp y Facebook conectados'
+                : (!FACEBOOK_ENABLED
+                    ? 'WhatsApp conectado; Facebook desactivado'
+                    : 'WhatsApp conectado; Facebook no disponible'),
     });
-
-    iniciarHeartbeat();
 
     // ========================================================
     // BOT LISTO
@@ -7211,6 +7314,12 @@ async function iniciar() {
             }
 
         } catch (error) {
+            actualizarEstadoHeartbeat({
+                status: 'error',
+                message: 'Error en el ciclo principal: ' + error.message,
+                lastError: error.message,
+                lastErrorAt: new Date().toISOString(),
+            });
 
             console.error('');
 
@@ -7239,15 +7348,21 @@ process.on(
     'unhandledRejection',
     error => {
 
-        console.error('');
+        actualizarEstadoHeartbeat({
+            status: 'error',
+            message: 'Unhandled rejection',
+            lastError: error?.message || String(error),
+            lastErrorAt: new Date().toISOString(),
+        });
 
+        void enviarHeartbeat('error');
+
+        console.error('');
         console.error(
             'UNHANDLED REJECTION:'
         );
 
-        console.error(
-            error
-        );
+        console.error(error);
     }
 );
 
@@ -7255,8 +7370,16 @@ process.on(
     'uncaughtException',
     error => {
 
-        console.error('');
+        actualizarEstadoHeartbeat({
+            status: 'error',
+            message: 'Uncaught exception',
+            lastError: error?.message || String(error),
+            lastErrorAt: new Date().toISOString(),
+        });
 
+        void enviarHeartbeat('error');
+
+        console.error('');
         console.error(
             'UNCAUGHT EXCEPTION:'
         );
@@ -7265,9 +7388,7 @@ process.on(
             'Esto normalmente indica un error no controlado.'
         );
 
-        console.error(
-            error
-        );
+        console.error(error);
     }
 );
 
@@ -7282,6 +7403,12 @@ async function cerrarBot() {
         'Cerrando bot...'
     );
 
+    actualizarEstadoHeartbeat({
+        status: 'stopping',
+        message: 'Cerrando bot',
+    });
+
+    await detenerHeartbeat();
     await cerrarWhatsApp();
     await cerrarFacebook();
     await cerrarNavegadorPrincipal();
@@ -7318,6 +7445,7 @@ iniciar()
             error
         );
 
+        await detenerHeartbeat();
         await cerrarWhatsApp();
         await cerrarFacebook();
         await cerrarNavegadorPrincipal();
