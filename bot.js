@@ -6779,7 +6779,7 @@ async function procesarPublicaciones(
 
                     } else {
 
-                        const gruposPendientes = gruposFacebook.filter(
+                        let gruposPendientes = gruposFacebook.filter(
                             grupoFacebook =>
                                 (!forcedExecution ||
                                     String(grupoFacebook.facebook_id) === String(forcedExecution.targetKey) ||
@@ -6804,6 +6804,7 @@ async function procesarPublicaciones(
                         );
 
                         let urlOrigenFacebook = registroFacebook.facebookUrlPublicacion || '';
+                        const facebookExecutionIds = new Map();
 
                         // V97: facebookOrigenUrl es la Página de origen, no el permalink.
                         registroFacebook.facebookOrigenUrl = FACEBOOK_ORIGEN_URL;
@@ -6845,6 +6846,38 @@ async function procesarPublicaciones(
                         // ----------------------------------------------------
                         if (!urlOrigenFacebook) {
                             try {
+                                const gruposConEjecucion = [];
+
+                                for (const grupoFacebook of gruposPendientes) {
+                                    const ejecucionFacebook = await iniciarEjecucionSeguro(
+                                        publicacion,
+                                        'facebook',
+                                        String(grupoFacebook.facebook_id),
+                                        grupoFacebook.id
+                                    );
+
+                                    if (ejecucionFacebook?.data?.status === 'succeeded') {
+                                        marcarFacebookGrupoComoEnviado(
+                                            estado,
+                                            publicacion,
+                                            grupoFacebook
+                                        );
+                                        continue;
+                                    }
+
+                                    facebookExecutionIds.set(
+                                        obtenerClaveFacebookGrupo(grupoFacebook),
+                                        ejecucionFacebook?.data?.id || null
+                                    );
+                                    gruposConEjecucion.push(grupoFacebook);
+                                }
+
+                                gruposPendientes = gruposConEjecucion;
+
+                                if (gruposPendientes.length === 0) {
+                                    continue;
+                                }
+
                                 console.log(
                                     `[Facebook] Creando publicación origen y compartiendo directamente en ${gruposPendientes.length} grupo(s).`
                                 );
@@ -6891,6 +6924,13 @@ async function procesarPublicaciones(
                                         grupoFacebook
                                     );
 
+                                    await completarEjecucionSeguro(
+                                        facebookExecutionIds.get(
+                                            obtenerClaveFacebookGrupo(grupoFacebook)
+                                        ),
+                                        resultadoOrigen.urlPublicacion || null
+                                    );
+
                                     console.log(
                                         `FACEBOOK: ID ${publicacion.id} compartida en "${grupoFacebook.nombre}" y registrada como enviada.`
                                     );
@@ -6899,6 +6939,10 @@ async function procesarPublicaciones(
                                 continue;
 
                             } catch (error) {
+                                for (const executionId of facebookExecutionIds.values()) {
+                                    await fallarEjecucionSeguro(executionId, error);
+                                }
+
                                 registrarPublicacionFallida(
                                     publicacion,
                                     'facebook',
@@ -6931,10 +6975,30 @@ async function procesarPublicaciones(
                         // de origen.
                         // ----------------------------------------------------
                         for (const grupoFacebook of gruposPendientes) {
+                            let executionIdFacebook = null;
+
                             try {
                                 console.log(
                                     `Procesando destino pendiente: FACEBOOK -> ${grupoFacebook.nombre}`
                                 );
+
+                                const ejecucionFacebook = await iniciarEjecucionSeguro(
+                                    publicacion,
+                                    'facebook',
+                                    String(grupoFacebook.facebook_id),
+                                    grupoFacebook.id
+                                );
+
+                                if (ejecucionFacebook?.data?.status === 'succeeded') {
+                                    marcarFacebookGrupoComoEnviado(
+                                        estado,
+                                        publicacion,
+                                        grupoFacebook
+                                    );
+                                    continue;
+                                }
+
+                                executionIdFacebook = ejecucionFacebook?.data?.id || null;
 
                                 const resultadoFacebook =
                                 await publicarEnFacebookConReintentos(
@@ -6950,12 +7014,22 @@ async function procesarPublicaciones(
                                         grupoFacebook
                                     );
 
+                                    await completarEjecucionSeguro(
+                                        executionIdFacebook,
+                                        null
+                                    );
+
                                     console.log(
                                         `FACEBOOK: ID ${publicacion.id} compartida en "${grupoFacebook.nombre}" y registrada como enviada.`
                                     );
                                 }
 
                             } catch (error) {
+                                await fallarEjecucionSeguro(
+                                    executionIdFacebook,
+                                    error
+                                );
+
                                 registrarPublicacionFallida(
                                     publicacion,
                                     'facebook',
