@@ -7445,6 +7445,7 @@ iniciar()
             error
         );
 
+        await detenerHeartbeat();
         await cerrarWhatsApp();
         await cerrarFacebook();
         await cerrarNavegadorPrincipal();
