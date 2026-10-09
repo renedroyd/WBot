@@ -1,0 +1,17 @@
+# Ficheros específicos
+.env
+
+# Por extensión
+*.log
+*.tmp
+
+# Carpetas completas
+node_modules/
+backups_perfiles/
+facebook_session/
+imagenes/
+imagenes_api/
+whatsapp_session/
+.vscode/
+
+# Comentarios con #

@@ -1,0 +1,37 @@
+[
+  {
+    "hora": "09:00",
+    "imagen": "inicio.png",
+    "texto": "🍻 ¡Comenzamos la venta!\n\nRealiza tu pedido ahora."
+  },
+  {
+    "hora": "09:01",
+    "imagen": "Bucanero.png",
+    "texto": "🍻 ¡Realiza tu pedido ahora!\n\n. $15.000,00 CUP por Caja"
+  },
+  {
+    "hora": "12:00",
+    "imagen": "Bucanero.png",
+    "texto": "🍻 ¡Realiza tu pedido ahora!\n\n. $15.000,00 CUP por Caja"
+  },
+  {
+    "hora": "15:00",
+    "imagen": "Bucanero.png",
+    "texto": "🍻 ¡Realiza tu pedido ahora!\n\n. $15.000,00 CUP por Caja"
+  },
+  {
+    "hora": "18:00",
+    "imagen": "Bucanero.png",
+    "texto": "🍻 ¡Realiza tu pedido ahora!\n\n. $15.000,00 CUP por Caja"
+  },
+  {
+    "hora": "18:20",
+    "imagen": "Bucanero.png",
+    "texto": "🍻 ¡Realiza tu pedido ahora!\n\n. $15.000,00 CUP por Caja"
+  },
+  {
+    "hora": "18:30",
+    "imagen": "Cierre.png",
+    "texto": "🍻 ¡Cerramos la venta por hoy!"
+  }
+]
