@@ -15,6 +15,15 @@ const {
     registrarReintento,
 } = require('./heartbeat');
 
+const {
+    iniciarEjecucion,
+    completarEjecucion,
+    fallarEjecucion,
+    reclamarComando,
+    completarComando,
+    fallarComando,
+} = require('./laravel-api');
+
 // Navegador/página de WhatsApp administrados por el bot, igual que Facebook.
 let navegadorPrincipal = null;
 let whatsappBrowser = null;
@@ -6209,11 +6218,188 @@ async function obtenerOCrearPublicacionOrigenFacebook(publicacion, rutaImagen, e
 // ============================================================
 // PROCESAMIENTO DE PUBLICACIONES
 // ============================================================
+async function iniciarEjecucionSeguro(publicacion, channel, targetKey, facebookGroupId = null) {
+    try {
+        return await iniciarEjecucion(
+            publicacion,
+            channel,
+            targetKey,
+            facebookGroupId
+        );
+    } catch (error) {
+        console.warn(
+            '[Laravel] No se pudo registrar el inicio de ejecución:',
+            error.message
+        );
+        return null;
+    }
+}
+
+async function completarEjecucionSeguro(executionId, externalId = null) {
+    if (!executionId) return;
+
+    try {
+        await completarEjecucion(executionId, externalId);
+    } catch (error) {
+        console.warn(
+            '[Laravel] No se pudo registrar la ejecución exitosa #' + executionId + ':',
+            error.message
+        );
+    }
+}
+
+async function fallarEjecucionSeguro(executionId, error) {
+    if (!executionId) return;
+
+    try {
+        await fallarEjecucion(executionId, error?.message || String(error));
+    } catch (reportError) {
+        console.warn(
+            '[Laravel] No se pudo registrar la ejecución fallida #' + executionId + ':',
+            reportError.message
+        );
+    }
+}
+
+async function ejecutarComandoLaravel(client, grupoId, estado, comando) {
+    const payload = comando?.payload || {};
+
+    if (comando.type !== 'retry_publication') {
+        throw new Error('Tipo de comando no soportado: ' + comando.type);
+    }
+
+    const occurrenceId = String(payload.occurrence_id || '');
+    const channel = String(payload.channel || '');
+    const targetKey = String(payload.target_key || '');
+
+    if (!occurrenceId || !['whatsapp', 'facebook'].includes(channel) || !targetKey) {
+        throw new Error('Comando de reintento inválido: faltan occurrence_id, channel o target_key.');
+    }
+
+    const publicacion = publicacionesCache.find(
+        item => String(item.ocurrencia_id) === occurrenceId
+    );
+
+    if (!publicacion) {
+        await actualizarPublicaciones();
+
+        const recargada = publicacionesCache.find(
+            item => String(item.ocurrencia_id) === occurrenceId
+        );
+
+        if (!recargada) {
+            throw new Error('La ocurrencia solicitada no está disponible en Laravel: ' + occurrenceId);
+        }
+    }
+
+    const publicacionActual = publicacionesCache.find(
+        item => String(item.ocurrencia_id) === occurrenceId
+    );
+
+    const registro = obtenerRegistroEstado(estado, publicacionActual);
+
+    if (channel === 'whatsapp') {
+        registro.whatsapp = false;
+        registro.enviada = false;
+    } else {
+        for (const grupo of obtenerGruposFacebookPublicacion(publicacionActual)) {
+            if (
+                String(grupo.facebook_id) === targetKey ||
+                obtenerClaveFacebookGrupo(grupo) === targetKey
+            ) {
+                registro.facebookGrupos[obtenerClaveFacebookGrupo(grupo)] = false;
+            }
+        }
+
+        registro.facebook = false;
+        registro.enviada = false;
+    }
+
+    guardarJson(ARCHIVO_ESTADO, estado);
+
+    await procesarPublicaciones(
+        client,
+        grupoId,
+        estado,
+        {
+            occurrenceId,
+            channel,
+            targetKey,
+        }
+    );
+
+    const actualizado = obtenerRegistroEstado(estado, publicacionActual);
+    const exitoso = channel === 'whatsapp'
+        ? actualizado.whatsapp === true
+        : obtenerGruposFacebookPublicacion(publicacionActual).some(
+            grupo => (
+                String(grupo.facebook_id) === targetKey ||
+                obtenerClaveFacebookGrupo(grupo) === targetKey
+            ) && actualizado.facebookGrupos?.[obtenerClaveFacebookGrupo(grupo)] === true
+        );
+
+    if (!exitoso) {
+        throw new Error(
+            'WBot no pudo completar el reintento de ' +
+            channel + ' para ' + occurrenceId
+        );
+    }
+
+    return {
+        occurrence_id: occurrenceId,
+        channel,
+        target_key: targetKey,
+        success: true,
+    };
+}
+
+async function revisarComandosLaravel(client, grupoId, estado) {
+    try {
+        const respuesta = await reclamarComando();
+        const comando = respuesta?.data;
+
+        if (!comando) {
+            return false;
+        }
+
+        console.log(
+            '[Laravel] Comando reclamado #' + comando.id +
+            ' (' + comando.type + ')'
+        );
+
+        try {
+            const resultado = await ejecutarComandoLaravel(
+                client,
+                grupoId,
+                estado,
+                comando
+            );
+
+            await completarComando(comando.id, resultado);
+
+            console.log('[Laravel] Comando #' + comando.id + ' completado.');
+        } catch (error) {
+            await fallarComando(comando.id, error.message, true);
+
+            console.error(
+                '[Laravel] Comando #' + comando.id + ' falló:',
+                error.message
+            );
+        }
+
+        return true;
+    } catch (error) {
+        console.error('[Laravel] Error consultando comandos:', error.message);
+        return false;
+    }
+}
+
 
 async function procesarPublicaciones(
     client,
     grupoId,
-    estado
+    estado,
+    forcedExecution = null
 ) {
 
     try {
@@ -6253,11 +6439,9 @@ async function procesarPublicaciones(
                     return false;
                 }
 
-                if (
-                    publicacion.fecha !==
-                    fechaActual
-                ) {
+                const isForced = forcedExecution?.occurrenceId === publicacion.ocurrencia_id;
 
+                if (!isForced && publicacion.fecha !== fechaActual) {
                     return false;
                 }
 
@@ -6265,11 +6449,7 @@ async function procesarPublicaciones(
                 `${publicacion.fecha} ` +
                 `${publicacion.hora}`;
 
-                if (
-                    fechaHoraPublicacion >
-                    ahoraClave
-                ) {
-
+                if (!isForced && fechaHoraPublicacion > ahoraClave) {
                     return false;
                 }
 
@@ -6340,6 +6520,7 @@ async function procesarPublicaciones(
 
                     const whatsappPendiente =
                     requiereDestino(publicacion, 'whatsapp') &&
+                    (!forcedExecution || forcedExecution.channel === 'whatsapp') &&
                     !destinoFueEnviado(
                         estado,
                         publicacion,
@@ -6348,6 +6529,7 @@ async function procesarPublicaciones(
 
                     const facebookPendiente =
                     requiereDestino(publicacion, 'facebook') &&
+                    (!forcedExecution || forcedExecution.channel === 'facebook') &&
                     !facebookPublicacionFueEnviada(
                         estado,
                         publicacion
@@ -6465,6 +6647,7 @@ async function procesarPublicaciones(
 
                 if (
                     requiereDestino(publicacion, 'whatsapp') &&
+                    (!forcedExecution || forcedExecution.channel === 'whatsapp') &&
                     !destinoFueEnviado(
                         estado,
                         publicacion,
@@ -6472,11 +6655,36 @@ async function procesarPublicaciones(
                     )
                 ) {
 
+                    let executionIdWhatsApp = null;
+
                     try {
 
                         console.log(
                             'Procesando destino: WHATSAPP'
                         );
+
+                        const targetKeyWhatsApp = NOMBRE_GRUPO;
+                        const ejecucionWhatsApp = await iniciarEjecucionSeguro(
+                            publicacion,
+                            'whatsapp',
+                            targetKeyWhatsApp
+                        );
+
+                        if (ejecucionWhatsApp?.data?.status === 'succeeded') {
+                            marcarDestinoComoEnviado(
+                                estado,
+                                publicacion,
+                                'whatsapp'
+                            );
+
+                            console.log(
+                                'WHATSAPP: Laravel ya registra esta ejecución como exitosa; se omite el envío duplicado.'
+                            );
+
+                            continue;
+                        }
+
+                        executionIdWhatsApp = ejecucionWhatsApp?.data?.id || null;
 
                         const resultadoWhatsApp =
                         await enviarImagenWhatsApp(
@@ -6500,9 +6708,18 @@ async function procesarPublicaciones(
                                 `WHATSAPP: ID ${publicacion.id} ` +
                                 `registrada como enviada.`
                             );
+
+                            await completarEjecucionSeguro(
+                                executionIdWhatsApp,
+                                null
+                            );
                         }
 
                     } catch (error) {
+                        await fallarEjecucionSeguro(
+                            executionIdWhatsApp,
+                            error
+                        );
                         registrarPublicacionFallida(
                             publicacion,
                             'whatsapp',
@@ -6540,7 +6757,7 @@ async function procesarPublicaciones(
                 // FACEBOOK
                 // ------------------------------------------------
 
-                if (requiereDestino(publicacion, 'facebook')) {
+                if (requiereDestino(publicacion, 'facebook') && (!forcedExecution || forcedExecution.channel === 'facebook')) {
 
                     const gruposFacebook =
                     obtenerGruposFacebookPublicacion(
@@ -6563,11 +6780,15 @@ async function procesarPublicaciones(
                     } else {
 
                         const gruposPendientes = gruposFacebook.filter(
-                            grupoFacebook => !facebookGrupoFueEnviado(
-                                estado,
-                                publicacion,
-                                grupoFacebook
-                            )
+                            grupoFacebook =>
+                                (!forcedExecution ||
+                                    String(grupoFacebook.facebook_id) === String(forcedExecution.targetKey) ||
+                                    obtenerClaveFacebookGrupo(grupoFacebook) === String(forcedExecution.targetKey)) &&
+                                !facebookGrupoFueEnviado(
+                                    estado,
+                                    publicacion,
+                                    grupoFacebook
+                                )
                         );
 
                         if (gruposPendientes.length === 0) {
@@ -7305,6 +7526,8 @@ async function iniciar() {
 
                 ultimaRevision =
                 hora;
+
+                await revisarComandosLaravel(client, grupoId, estado);
 
                 await procesarPublicaciones(
                     client,
