@@ -7209,7 +7209,6 @@ async function iniciar() {
     });
 
     // ========================================================
-    // ========================================================
     // BOT LISTO
     // ========================================================
 
@@ -7349,9 +7348,6 @@ process.on(
     'unhandledRejection',
     error => {
 
-        console.error('');
-
-        console.error(
         actualizarEstadoHeartbeat({
             status: 'error',
             message: 'Unhandled rejection',
@@ -7360,12 +7356,13 @@ process.on(
         });
 
         void enviarHeartbeat('error');
+
+        console.error('');
+        console.error(
             'UNHANDLED REJECTION:'
         );
 
-        console.error(
-            error
-        );
+        console.error(error);
     }
 );
 
@@ -7373,9 +7370,6 @@ process.on(
     'uncaughtException',
     error => {
 
-        console.error('');
-
-        console.error(
         actualizarEstadoHeartbeat({
             status: 'error',
             message: 'Uncaught exception',
@@ -7384,6 +7378,9 @@ process.on(
         });
 
         void enviarHeartbeat('error');
+
+        console.error('');
+        console.error(
             'UNCAUGHT EXCEPTION:'
         );
 
@@ -7391,9 +7388,7 @@ process.on(
             'Esto normalmente indica un error no controlado.'
         );
 
-        console.error(
-            error
-        );
+        console.error(error);
     }
 );
 
@@ -7406,6 +7401,7 @@ async function cerrarBot() {
     console.log('');
     console.log(
         'Cerrando bot...'
+    );
 
     actualizarEstadoHeartbeat({
         status: 'stopping',
@@ -7413,8 +7409,6 @@ async function cerrarBot() {
     });
 
     await detenerHeartbeat();
-    );
-
     await cerrarWhatsApp();
     await cerrarFacebook();
     await cerrarNavegadorPrincipal();
