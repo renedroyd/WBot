@@ -6218,6 +6218,49 @@ async function obtenerOCrearPublicacionOrigenFacebook(publicacion, rutaImagen, e
 // ============================================================
 // PROCESAMIENTO DE PUBLICACIONES
 // ============================================================
+async function iniciarEjecucionSeguro(publicacion, channel, targetKey, facebookGroupId = null) {
+    try {
+        return await iniciarEjecucion(
+            publicacion,
+            channel,
+            targetKey,
+            facebookGroupId
+        );
+    } catch (error) {
+        console.warn(
+            '[Laravel] No se pudo registrar el inicio de ejecución:',
+            error.message
+        );
+        return null;
+    }
+}
+
+async function completarEjecucionSeguro(executionId, externalId = null) {
+    if (!executionId) return;
+
+    try {
+        await completarEjecucion(executionId, externalId);
+    } catch (error) {
+        console.warn(
+            '[Laravel] No se pudo registrar la ejecución exitosa #' + executionId + ':',
+            error.message
+        );
+    }
+}
+
+async function fallarEjecucionSeguro(executionId, error) {
+    if (!executionId) return;
+
+    try {
+        await fallarEjecucion(executionId, error?.message || String(error));
+    } catch (reportError) {
+        console.warn(
+            '[Laravel] No se pudo registrar la ejecución fallida #' + executionId + ':',
+            reportError.message
+        );
+    }
+}
+
 async function ejecutarComandoLaravel(client, grupoId, estado, comando) {
     const payload = comando?.payload || {};
 
@@ -6618,6 +6661,29 @@ async function procesarPublicaciones(
                             'Procesando destino: WHATSAPP'
                         );
 
+                        const targetKeyWhatsApp = NOMBRE_GRUPO;
+                        const ejecucionWhatsApp = await iniciarEjecucionSeguro(
+                            publicacion,
+                            'whatsapp',
+                            targetKeyWhatsApp
+                        );
+
+                        if (ejecucionWhatsApp?.data?.status === 'succeeded') {
+                            marcarDestinoComoEnviado(
+                                estado,
+                                publicacion,
+                                'whatsapp'
+                            );
+
+                            console.log(
+                                'WHATSAPP: Laravel ya registra esta ejecución como exitosa; se omite el envío duplicado.'
+                            );
+
+                            continue;
+                        }
+
+                        const executionIdWhatsApp = ejecucionWhatsApp?.data?.id || null;
+
                         const resultadoWhatsApp =
                         await enviarImagenWhatsApp(
                             client,
@@ -6640,9 +6706,18 @@ async function procesarPublicaciones(
                                 `WHATSAPP: ID ${publicacion.id} ` +
                                 `registrada como enviada.`
                             );
+
+                            await completarEjecucionSeguro(
+                                executionIdWhatsApp,
+                                null
+                            );
                         }
 
                     } catch (error) {
+                        await fallarEjecucionSeguro(
+                            executionIdWhatsApp,
+                            error
+                        );
                         registrarPublicacionFallida(
                             publicacion,
                             'whatsapp',
