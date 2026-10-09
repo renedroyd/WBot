@@ -6655,6 +6655,8 @@ async function procesarPublicaciones(
                     )
                 ) {
 
+                    let executionIdWhatsApp = null;
+
                     try {
 
                         console.log(
@@ -6682,7 +6684,7 @@ async function procesarPublicaciones(
                             continue;
                         }
 
-                        const executionIdWhatsApp = ejecucionWhatsApp?.data?.id || null;
+                        executionIdWhatsApp = ejecucionWhatsApp?.data?.id || null;
 
                         const resultadoWhatsApp =
                         await enviarImagenWhatsApp(
