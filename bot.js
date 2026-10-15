@@ -1399,6 +1399,21 @@ async function descubrirGruposFacebookParaSincronizacion(page, timeout = 30000) 
                         if (!/facebook\.com\/groups\//i.test(href)) continue;
 
                         let texto = normalizar(a.innerText || a.textContent || '');
+                        const nombrePorAtributo = normalizar(
+                            a.querySelector('[dir="auto"]')?.innerText ||
+                            a.getAttribute('title') ||
+                            a.getAttribute('aria-label') ||
+                            ''
+                        );
+                        // Algunas variantes de Facebook muestran solo "See group"
+                        // como texto visible y guardan el nombre real en title/aria-label.
+                        const primeraLinea = texto.split(/\n+/)[0] || '';
+                        if (
+                            !texto ||
+                            /^(?:see group|show group|mostra el grup|ver (?:el )?grupo|mostrar (?:el )?grupo)$/i.test(primeraLinea)
+                        ) {
+                            texto = nombrePorAtributo;
+                        }
                         // Si el enlace contiene varias líneas, normalmente la primera
                         // es el nombre del grupo.
                         if (texto.includes('\n')) texto = texto.split(/\n+/)[0];
@@ -1415,7 +1430,10 @@ async function descubrirGruposFacebookParaSincronizacion(page, timeout = 30000) 
                             el.getAttribute('data-url'),
                             el.getAttribute('data-testid')
                         ];
-                        const texto = normalizar(el.innerText || el.textContent || '');
+                        const texto = normalizar(
+                            el.innerText || el.textContent ||
+                            el.getAttribute('title') || el.getAttribute('aria-label') || ''
+                        );
                         for (const href of candidatos) {
                             if (/groups\//i.test(String(href || ''))) {
                                 agregar(href, texto.split(/\n+/)[0], '[role=link]');
@@ -1428,7 +1446,14 @@ async function descubrirGruposFacebookParaSincronizacion(page, timeout = 30000) 
                         if (!visible(el)) continue;
                         const href = el.getAttribute('data-href') || el.getAttribute('data-url') || '';
                         if (!/groups\//i.test(href)) continue;
-                        agregar(href, normalizar(el.innerText || el.textContent || '').split(/\n+/)[0], 'data-href');
+                        agregar(
+                            href,
+                            normalizar(
+                                el.innerText || el.textContent ||
+                                el.getAttribute('title') || el.getAttribute('aria-label') || ''
+                            ).split(/\n+/)[0],
+                            'data-href'
+                        );
                     }
 
                     // 4. Fallback: buscar URLs de grupos dentro del HTML/atributos.
