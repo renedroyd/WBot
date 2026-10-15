@@ -1,4 +1,4 @@
-// V74 - flujo Facebook detenido intencionalmente en Post settings después de seleccionar grupos\n'use strict';
+// V7 - selector estricto del botón final; conserva cola concurrente y WhatsApp secuencial\n'use strict';
 
 require('dotenv').config();
 
@@ -37,6 +37,61 @@ let facebookSyncPage = null;
 let facebookDisponible = false;
 let datosMigracionFacebookPendientes = null;
 
+// Diagnóstico Facebook: limitar temporalmente a dos tareas activas para comprobar
+// si el procesamiento de publicaciones se atasca por la concurrencia de pestañas.
+// La cola sigue siendo concurrente; WhatsApp conserva su orden secuencial.
+const FACEBOOK_CONCURRENCIA_MAXIMA = 2;
+const facebookTrabajosPendientes = [];
+const facebookTrabajosActivos = new Map();
+let facebookTrabajosActivosCount = 0;
+function encolarTrabajoFacebook(clave, trabajo) {
+    const existente = facebookTrabajosActivos.get(clave) ||
+        facebookTrabajosPendientes.find(item => item.clave === clave);
+    if (existente) {
+        console.log(`[Facebook][Cola] Trabajo duplicado detectado; se reutiliza su resultado: ${clave}`);
+        return existente.promise;
+    }
+
+    let resolver, rechazar;
+    const promise = new Promise((resolve, reject) => { resolver = resolve; rechazar = reject; });
+    // Evita un rechazo no observado para las tareas normales que se ejecutan en segundo plano.
+    promise.catch(() => {});
+    facebookTrabajosPendientes.push({ clave, trabajo, promise, resolver, rechazar });
+    console.log(`[Facebook][Cola] Encolado ${clave}. Pendientes: ${facebookTrabajosPendientes.length}; activos: ${facebookTrabajosActivosCount}/${FACEBOOK_CONCURRENCIA_MAXIMA}.`);
+    procesarColaFacebook();
+    return promise;
+}
+function procesarColaFacebook() {
+    while (facebookTrabajosActivosCount < FACEBOOK_CONCURRENCIA_MAXIMA && facebookTrabajosPendientes.length) {
+        const item = facebookTrabajosPendientes.shift();
+        facebookTrabajosActivosCount++;
+        facebookTrabajosActivos.set(item.clave, item);
+        (async () => {
+            let pageTrabajo = null;
+            try {
+                if (!facebookBrowser || facebookBrowser.isConnected?.() === false) {
+                    throw new Error('El navegador de Facebook no está disponible.');
+                }
+                pageTrabajo = await facebookBrowser.newPage();
+                await pageTrabajo.setDefaultNavigationTimeout(FACEBOOK_TIMEOUT_MS);
+                const resultado = await item.trabajo(pageTrabajo);
+                item.resolver(resultado ?? { success: true });
+            } catch (error) {
+                item.rechazar(error);
+                console.error(`[Facebook][Cola] Error en ${item.clave}: ${error.message}`);
+            } finally {
+                if (pageTrabajo && !pageTrabajo.isClosed()) {
+                    await pageTrabajo.close().catch(() => {});
+                }
+                facebookTrabajosActivos.delete(item.clave);
+                facebookTrabajosActivosCount--;
+                console.log(`[Facebook][Cola] Finalizado ${item.clave}. Pendientes: ${facebookTrabajosPendientes.length}; activos: ${facebookTrabajosActivosCount}/${FACEBOOK_CONCURRENCIA_MAXIMA}.`);
+                procesarColaFacebook();
+            }
+        })();
+    }
+}
+
 const fs = require('fs');
 const path = require('path');
 
@@ -70,10 +125,8 @@ String(process.env.FACEBOOK_ENABLED || 'false').toLowerCase() === 'true';
 const FACEBOOK_ORIGEN_URL =
 process.env.FACEBOOK_ORIGEN_URL || '';
 
-// Los grupos de Facebook NO se configuran en .env.
-// WBot sincroniza el catálogo desde la sesión autenticada de Facebook
-// y lo entrega a Laravel. Las publicaciones reciben desde Laravel
-// los grupos concretos seleccionados en Filament.
+// Destinos de publicación de Facebook: esta lista local es la fuente de verdad
+// para publicación y reintentos hasta reactivar explícitamente la selección Laravel.
 const FACEBOOK_SYNC_INTERVAL_MS = Math.max(
     5 * 60 * 1000,
     parseInt(process.env.FACEBOOK_SYNC_INTERVAL_MS || String(30 * 60 * 1000), 10)
@@ -109,6 +162,36 @@ Math.max(
         10
     )
 );
+
+// Grupos de destino definidos localmente. Por ahora se ignora el catálogo
+// y la selección de grupos que pueda enviar Laravel; cambiar esta lista
+// manualmente hasta que se reactive la integración con Laravel.
+const FACEBOOK_GRUPOS_PUBLICACION = [
+    {
+        id: 52,
+        facebook_id: '3496394560493538',
+        nombre: 'Revolico Guantanamo 2025',
+        url: 'https://www.facebook.com/groups/3496394560493538', /////PENDIENTES DE APROBACION
+    },
+    {
+        id: 53,
+        facebook_id: '2058351861183452',
+        nombre: 'REVOLICO GUANTANAMO Y SUS MUNICIPIOS',
+        url: 'https://www.facebook.com/groups/2058351861183452', //////EN ESTE GRUPO SI
+    },
+    {
+        id: 54,
+        facebook_id: '1005787863939670',
+        nombre: 'Revolico Los Coco Confluente',
+        url: 'https://www.facebook.com/groups/1005787863939670', ////////ESTE TAMBIEN
+    },
+    {
+        id: 55,
+        facebook_id: '4929809533739641',
+        nombre: 'Lo mejor de rebolico gtmo',
+        url: 'https://www.facebook.com/groups/4929809533739641',  ////PENDIENTES DE APROBACION
+    },
+];
 
 // MODO DE REFINAMIENTO DEL FLUJO FACEBOOK
 // ------------------------------------------------------------
@@ -264,6 +347,7 @@ async function extraerSesionFacebookAntigua() {
     try {
 
         navegadorMigracion = await puppeteer.launch({
+            executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
             headless: true,
             userDataDir: CARPETA_SESION_FACEBOOK,
             defaultViewport: { width: 1366, height: 900 },
@@ -774,7 +858,7 @@ function marcarFacebookGrupoComoEnviado(
     registro.fecha = obtenerFechaActual();
     registro.facebookGrupos[obtenerClaveFacebookGrupo(grupo)] = true;
 
-    const grupos = obtenerGruposFacebookPublicacion(publicacion);
+    const grupos = FACEBOOK_GRUPOS_PUBLICACION;
 
     registro.facebook =
     grupos.length > 0 &&
@@ -3134,7 +3218,7 @@ async function obtenerEditorFacebook(
 
                 const normalizar = valor => String(valor || '')
                 .normalize('NFD')
-                .replace(/[\\u0300-\\u036f]/g, '')
+                .replace(/[\u0300-\u036f]/g, '')
                 .replace(/\s+/g, ' ')
                 .trim()
                 .toLowerCase();
@@ -4720,16 +4804,18 @@ async function hacerClickAtrasFacebook(page, timeout = 10000) {
 }
 
 async function configurarGruposCompartirFacebook(page, grupos, timeout = 30000) {
-    const gruposValidos = Array.isArray(grupos) ? grupos.filter(Boolean) : [];
+    // Ignorar deliberadamente el argumento `grupos` que llega desde Laravel.
+    // La selección utiliza exclusivamente FACEBOOK_GRUPOS_PUBLICACION.
+    const gruposValidos = FACEBOOK_GRUPOS_PUBLICACION.map(grupo => ({ ...grupo }));
 
     if (gruposValidos.length === 0) {
         throw new Error(
-            'Laravel no proporcionó grupos de Facebook para esta publicación.'
+            'No hay grupos de Facebook definidos en FACEBOOK_GRUPOS_PUBLICACION.'
         );
     }
 
     console.log(
-        `[Facebook] Seleccionando ${gruposValidos.length} grupo(s) proporcionado(s) por Laravel.`
+        `[Facebook] Seleccionando ${gruposValidos.length} grupo(s) definidos en el código (Laravel ignorado para los grupos).`
     );
 
     const shareGroupsAbierto = await hacerClickPorTexto(
@@ -4741,7 +4827,7 @@ async function configurarGruposCompartirFacebook(page, grupos, timeout = 30000) 
             'compartir en un grupo'
         ],
         12000,
-        'div[role="dialog"]'
+        null
     );
 
     if (!shareGroupsAbierto) {
@@ -4800,33 +4886,60 @@ async function configurarGruposCompartirFacebook(page, grupos, timeout = 30000) 
 async function hacerClickPublicarFacebook(page, timeout = 30000) {
     const inicio = Date.now();
     const etiquetasSiguiente = ['següent', 'seguent', 'siguiente', 'next'];
-
-    // PASO 1: Següent / Siguiente / Next.
     let siguientePulsado = false;
+    let intentoGlobalRealizado = false;
 
+    // Facebook puede cambiar el contenedor del compositor. Primero se intenta
+    // el diálogo habitual y luego se busca un control visible en toda la página.
     while (Date.now() - inicio < timeout) {
-        const raiz = 'div[role="dialog"], [aria-modal="true"]';
-
-        const siguiente = await hacerClickPorTexto(
-            page,
-            etiquetasSiguiente,
-            Math.min(2500, Math.max(500, timeout - (Date.now() - inicio))),
-                                                   raiz
+        const restante = Math.max(500, timeout - (Date.now() - inicio));
+        let siguiente = await hacerClickPorTexto(
+            page, etiquetasSiguiente, Math.min(1800, restante), 'div[role="dialog"]'
         );
 
+        if (!siguiente) {
+            siguiente = await hacerClickPorTexto(
+                page, etiquetasSiguiente,
+                Math.min(1200, Math.max(500, timeout - (Date.now() - inicio))), null
+            );
+            intentoGlobalRealizado = true;
+        }
+
         if (siguiente) {
-            console.log('[Facebook] Botón "Següent/Siguiente/Next" localizado; entrando en Post settings.');
+            console.log(`[Facebook] Botón "Següent/Siguiente/Next" localizado${intentoGlobalRealizado ? ' en la página completa' : ' en el diálogo'}.`);
             await esperar(1800);
             siguientePulsado = true;
             break;
         }
-
         await esperar(400);
     }
 
-    if (!siguientePulsado) return false;
+    if (!siguientePulsado) {
+        const diagnostico = await page.evaluate(() => {
+            const visible = el => {
+                const r = el.getBoundingClientRect();
+                const s = getComputedStyle(el);
+                return r.width > 2 && r.height > 2 && s.display !== 'none' &&
+                    s.visibility !== 'hidden' && s.opacity !== '0';
+            };
+            return Array.from(document.querySelectorAll('button,[role="button"],a,[tabindex="0"]'))
+                .filter(visible)
+                .map(el => ({
+                    tag: el.tagName,
+                    role: el.getAttribute('role'),
+                    ariaLabel: el.getAttribute('aria-label'),
+                    title: el.getAttribute('title'),
+                    testId: el.getAttribute('data-testid'),
+                    text: String(el.innerText || el.textContent || '').trim().slice(0, 100),
+                    disabled: Boolean(el.disabled || el.getAttribute('aria-disabled') === 'true')
+                }))
+                .filter(x => /següent|seguent|siguiente|next/i.test([x.ariaLabel, x.title, x.testId, x.text].filter(Boolean).join(' ')))
+                .slice(0, 20);
+        }).catch(error => [{ error: error.message }]);
+        console.warn('[Facebook] No se localizó "Següent". Controles candidatos visibles:', JSON.stringify(diagnostico));
+        return false;
+    }
 
-    // El llamador se encarga de entrar en Share to groups antes de publicar.
     return true;
 }
 
@@ -4984,7 +5097,7 @@ async function asegurarModoPaginaFacebook(page, timeout = 30000) {
         const estado = await page.evaluate(() => {
             const texto = String(document.body?.innerText || '')
             .normalize('NFD')
-            .replace(/[\\u0300-\\u036f]/g, '')
+            .replace(/[\u0300-\u036f]/g, '')
             .replace(/\s+/g, ' ')
             .trim()
             .toLowerCase();
@@ -5429,11 +5542,9 @@ async function crearPublicacionOrigenFacebook(
 
     const texto = publicacion.texto || '';
 
-    if (!Array.isArray(gruposDestino) || gruposDestino.length === 0) {
-        throw new Error(
-            `Laravel no proporcionó grupos de Facebook para la publicación ID ${publicacion.id}.`
-        );
-    }
+    // Los grupos de destino se toman de FACEBOOK_GRUPOS_PUBLICACION.
+    // `gruposDestino` puede venir vacío o desde Laravel, pero no decide
+    // a qué grupos de Facebook se intentará publicar.
 
     console.log('');
     console.log('='.repeat(70));
@@ -5442,7 +5553,7 @@ async function crearPublicacionOrigenFacebook(
     console.log(`ID     : ${publicacion.id}`);
     console.log(`Origen : ${FACEBOOK_ORIGEN_URL}`);
     console.log(`Imagen : ${rutaImagen}`);
-    console.log(`Grupos : ${gruposDestino.map(g => g.nombre).join(' | ')}`);
+    console.log(`Grupos : ${FACEBOOK_GRUPOS_PUBLICACION.map(g => g.nombre).join(' | ')} (definidos en código)`);
     console.log(`Texto  : ${texto}`);
 
     await cerrarModalInformacionFacebook(facebookPage, Math.min(FACEBOOK_TIMEOUT_MS, 10000));
@@ -5942,6 +6053,226 @@ async function crearPublicacionOrigenFacebook(
     }
 }
 
+// Publica una copia independiente directamente en el muro de cada grupo.
+// No crea una publicación en la Página de origen ni utiliza "Share to groups".
+async function publicarDirectamenteEnMuroGrupoFacebook(publicacion, rutaImagen, grupo, page = facebookPage) {
+    if (!grupo?.url) throw new Error(`El grupo "${grupo?.nombre || 'desconocido'}" no tiene URL.`);
+    comprobarImagen(rutaImagen);
+
+    console.log(`[Facebook][Muro] Abriendo grupo: ${grupo.nombre} (${grupo.url})`);
+    await cerrarCompositoresFacebook(page, 'antes de abrir el grupo').catch(() => {});
+    await prepararNavegacionFacebook(page);
+    await page.goto(grupo.url, { waitUntil: 'domcontentloaded', timeout: FACEBOOK_TIMEOUT_MS });
+    await esperar(3500);
+
+    if (/login/i.test(page.url())) {
+        facebookDisponible = false;
+        throw new Error('La sesión de Facebook no está autenticada.');
+    }
+
+    await page.keyboard.press('Escape').catch(() => {});
+    await esperar(500);
+    const abierto = await abrirCompositorFacebook(page, 20000);
+    if (!abierto) throw new Error(`No se encontró el compositor para publicar en el muro de "${grupo.nombre}".`);
+    await esperar(1200);
+
+    let inputFile = await obtenerInputImagenFacebook(page, 2500);
+    if (!inputFile) {
+        const fotoVideo = await hacerClickPorTexto(page,
+            ['foto/video', 'foto o vídeo', 'photo/video', 'photo or video', 'add photos/videos'],
+            8000, 'div[role="dialog"]');
+        if (!fotoVideo) throw new Error(`No se encontró "Foto/video" en el compositor de "${grupo.nombre}".`);
+        await esperar(800);
+        inputFile = await obtenerInputImagenFacebook(page, 12000);
+    }
+    if (!inputFile) throw new Error(`Facebook no mostró el selector de imagen para "${grupo.nombre}".`);
+    await inputFile.uploadFile(rutaImagen);
+    await esperar(2200);
+
+    const editor = await obtenerEditorFacebook(page, 12000);
+    if (!editor) throw new Error(`No se encontró el editor de texto en "${grupo.nombre}".`);
+    const texto = String(publicacion.texto || '');
+    await editor.evaluate(el => { el.focus(); el.scrollIntoView({ block: 'center' }); });
+    if (texto.trim()) {
+        await page.keyboard.down('Control');
+        await page.keyboard.press('A');
+        await page.keyboard.up('Control');
+        await page.keyboard.press('Backspace');
+        const cdp = await page.target().createCDPSession();
+        try { await cdp.send('Input.insertText', { text: texto }); }
+        finally { try { await cdp.detach(); } catch (_) {} }
+    }
+    await esperar(900);
+
+    // V7: nunca aceptar el disparador "Crea una publicació" como botón final.
+    // Esperar a que exista un botón final exacto y esté habilitado dentro del
+    // mismo diálogo que contiene el editor del contenido.
+    const obtenerBotonFinalPublicar = async () => page.evaluate(() => {
+        const norm = v => String(v || '').normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+        const visible = el => {
+            if (!el || !el.isConnected) return false;
+            const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+            return r.width > 15 && r.height > 15 && s.display !== 'none' &&
+                s.visibility !== 'hidden' && s.opacity !== '0' &&
+                r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth;
+        };
+        const dialogos = Array.from(document.querySelectorAll('div[role="dialog"], [aria-modal="true"]')).filter(visible);
+        const tieneEditor = el => !!el.querySelector(
+            '[contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"], textarea'
+        );
+        const raiz = [...dialogos].reverse().find(tieneEditor);
+        if (!raiz) return { ready: false, reason: 'dialogo-con-editor-no-encontrado', dialogs: dialogos.length };
+        const elementos = Array.from(raiz.querySelectorAll('button,[role="button"],input[type="submit"]')).filter(visible);
+        const candidatos = elementos.map(el => {
+            const aria = norm(el.getAttribute('aria-label'));
+            const texto = norm(el.innerText || el.textContent || el.value);
+            const exacto = /^(publica|publicar|publish|post|compartir|share|publicar ahora|share now|post now)$/.test(aria) ||
+                /^(publica|publicar|publish|post|compartir|share|publicar ahora|share now|post now)$/.test(texto);
+            const disabled = !!el.disabled || el.getAttribute('aria-disabled') === 'true' ||
+                el.getAttribute('data-disabled') === 'true';
+            return { el, aria, texto, exacto, disabled };
+        }).filter(x => x.exacto);
+        // aria-label exacto "Publica" tiene prioridad; nunca se aceptan labels
+        // como "Crea una publicació" o "Create a public post…".
+        candidatos.sort((a,b) => (a.aria === 'publica' ? 2 : 0) - (b.aria === 'publica' ? 2 : 0));
+        const elegido = candidatos.find(x => !x.disabled);
+        if (!elegido) return {
+            ready: false,
+            reason: candidatos.length ? 'boton-final-aun-deshabilitado' : 'boton-final-exacto-no-encontrado',
+            dialogs: dialogos.length,
+            candidates: candidatos.map(x => ({aria:x.aria, texto:x.texto, disabled:x.disabled}))
+        };
+        const r = elegido.el.getBoundingClientRect();
+        return { ready: true, x:r.x+r.width/2, y:r.y+r.height/2, label:elegido.aria || elegido.texto, dialogs:dialogos.length };
+    });
+
+    let publicar = null;
+    const limitePreparacion = Date.now() + 45000;
+    let ultimoEstadoBoton = null;
+    while (Date.now() < limitePreparacion) {
+        publicar = await obtenerBotonFinalPublicar().catch(e => ({ ready:false, reason:e.message }));
+        ultimoEstadoBoton = publicar;
+        if (publicar?.ready) break;
+        await esperar(1000);
+    }
+    if (!publicar?.ready) {
+        console.warn(`[Facebook][Muro][V7] Botón final no habilitado/localizado en "${grupo.nombre}": ${JSON.stringify(ultimoEstadoBoton)}`);
+        throw new Error(`El botón final "Publica" no llegó a estar habilitado en "${grupo.nombre}". No se hizo clic; revisar carga de imagen/compositor.`);
+    }
+    console.log(`[Facebook][Muro][V7] Botón final exacto "${publicar.label}" habilitado dentro del compositor (${publicar.dialogs} diálogo(s)). Se hará un único clic.`);
+    await page.mouse.click(Math.round(publicar.x), Math.round(publicar.y));
+    // Desde este punto Facebook pudo haber aceptado el post aunque falle la confirmación.
+    page.__wbotFacebookPostClickRealizado = true;
+
+    // Esperar explícitamente a que el compositor real desaparezca antes de
+    // continuar al siguiente grupo. Facebook puede tardar en enviar la imagen.
+    // Se identifica por el editor y/o el botón accesible "Close composer dialog",
+    // no por el texto visible, que cambia según el idioma de la interfaz.
+    const limite = Date.now() + 60000;
+    let sondeosSinCompositor = 0;
+    let confirmado = false;
+    while (Date.now() < limite) {
+        await esperar(1000);
+        const estado = await page.evaluate(() => {
+            const norm = v => String(v || '').normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '').toLowerCase()
+                .replace(/\s+/g, ' ').trim();
+            const visible = el => {
+                if (!el) return false;
+                const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+                return r.width > 0 && r.height > 0 &&
+                    s.display !== 'none' && s.visibility !== 'hidden' &&
+                    s.opacity !== '0';
+            };
+            const dialogos = Array.from(document.querySelectorAll(
+                'div[role="dialog"], [aria-modal="true"]'
+            )).filter(visible);
+            const esCompositor = d => {
+                const tieneEditor = !!d.querySelector(
+                    '[contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"], textarea'
+                );
+                const tieneCierreCompositor = !!d.querySelector(
+                    '[aria-label*="Close composer"], [aria-label*="Tanca el compositor"], [aria-label*="Cerrar compositor"]'
+                );
+                const texto = norm(d.innerText || d.textContent);
+                const tieneTextoCompositor = /crear una publicacion|crea una publicacio|create a post|create post|write something|escribe algo/.test(texto);
+                return tieneEditor && (tieneCierreCompositor || tieneTextoCompositor) ||
+                    tieneCierreCompositor;
+            };
+            const compositorVisible = dialogos.some(esCompositor);
+            const errores = dialogos.map(d => norm(d.innerText || d.textContent)).join(' ');
+            const cuerpo = norm(document.body?.innerText || '');
+            const error = /no se pudo publicar|couldn't post|something went wrong|error al publicar|no s'ha pogut publicar/.test(
+                errores.slice(-2500) + ' ' + cuerpo.slice(-1200)
+            );
+            return { compositorVisible, error, dialogos: dialogos.length };
+        }).catch(() => ({ compositorVisible: true, error: false, dialogos: -1 }));
+
+        if (estado.error) {
+            throw new Error(`Facebook mostró un error al publicar en "${grupo.nombre}".`);
+        }
+
+        if (estado.compositorVisible) {
+            sondeosSinCompositor = 0;
+        } else {
+            // Exigir dos comprobaciones consecutivas para evitar avanzar si el
+            // diálogo solo se oculta momentáneamente durante una actualización.
+            sondeosSinCompositor += 1;
+            if (sondeosSinCompositor >= 2) {
+                confirmado = true;
+                break;
+            }
+        }
+    }
+    if (!confirmado) {
+        // V6: capturar evidencia del estado real antes de cerrar la pestaña.
+        // No se reintenta el clic automáticamente porque podría duplicar una
+        // publicación que Facebook sí haya aceptado pero cuyo diálogo siga abierto.
+        let diagnostico = null;
+        try {
+            diagnostico = await page.evaluate(() => {
+                const visible = el => {
+                    if (!el) return false;
+                    const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+                    return r.width > 0 && r.height > 0 && s.display !== 'none' &&
+                        s.visibility !== 'hidden' && s.opacity !== '0';
+                };
+                const norm = v => String(v || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+                const dialogos = Array.from(document.querySelectorAll('div[role="dialog"], [aria-modal="true"]'))
+                    .filter(visible).map((d, i) => ({
+                        indice: i,
+                        texto: norm(d.innerText || d.textContent),
+                        editores: Array.from(d.querySelectorAll('[contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"], textarea')).filter(visible).length,
+                        botones: Array.from(d.querySelectorAll('button,[role="button"],[aria-label]')).filter(visible).map(b => ({
+                            texto: norm(b.innerText || b.textContent),
+                            aria: b.getAttribute('aria-label'),
+                            disabled: !!b.disabled || b.getAttribute('aria-disabled') === 'true',
+                            testid: b.getAttribute('data-testid')
+                        })).slice(-18)
+                    }));
+                const cuerpo = norm(document.body?.innerText).slice(-1400);
+                return { url: location.href, titulo: document.title, dialogos, cuerpo };
+            });
+        } catch (e) {
+            diagnostico = { errorDiagnostico: e.message };
+        }
+        console.error(`[Facebook][Muro][Diagnóstico V6] Estado tras 60 s en "${grupo.nombre}": ${JSON.stringify(diagnostico)}`);
+        try {
+            const nombreSeguro = String(grupo.facebook_id || grupo.nombre || 'grupo').replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 70);
+            const archivo = path.join(__dirname, `facebook_error_envio_${Date.now()}_${nombreSeguro}.png`);
+            await page.screenshot({ path: archivo, fullPage: false });
+            console.error(`[Facebook][Muro][Diagnóstico V6] Captura guardada: ${archivo}`);
+        } catch (e) {
+            console.warn(`[Facebook][Muro][Diagnóstico V6] No se pudo guardar captura: ${e.message}`);
+        }
+        throw new Error(`El formulario de publicación siguió abierto tras 60 segundos en "${grupo.nombre}". Se guardó diagnóstico V6; no se reintentó el clic para evitar duplicados. La publicación queda pendiente de verificación.`);
+    }
+    console.log(`[Facebook][Muro] El formulario desapareció y Facebook terminó el envío en "${grupo.nombre}".`);
+
+    return true;
+}
+
 async function compartirPublicacionFacebookEnGrupo(
     urlPublicacion,
     grupo
@@ -6228,7 +6559,7 @@ async function iniciarEjecucionSeguro(publicacion, channel, targetKey, facebookG
         );
     } catch (error) {
         console.warn(
-            '[Laravel] No se pudo registrar el inicio de ejecución:',
+            '[Laravel] No se pudo registrar el inicio de ejecución (no bloquea el intento de publicación):',
             error.message
         );
         return null;
@@ -6263,7 +6594,6 @@ async function fallarEjecucionSeguro(executionId, error) {
 
 async function ejecutarComandoLaravel(client, grupoId, estado, comando) {
     const payload = comando?.payload || {};
-
     if (comando.type !== 'retry_publication') {
         throw new Error('Tipo de comando no soportado: ' + comando.type);
     }
@@ -6271,86 +6601,57 @@ async function ejecutarComandoLaravel(client, grupoId, estado, comando) {
     const occurrenceId = String(payload.occurrence_id || '');
     const channel = String(payload.channel || '');
     const targetKey = String(payload.target_key || '');
-
     if (!occurrenceId || !['whatsapp', 'facebook'].includes(channel) || !targetKey) {
         throw new Error('Comando de reintento inválido: faltan occurrence_id, channel o target_key.');
     }
 
-    const publicacion = publicacionesCache.find(
-        item => String(item.ocurrencia_id) === occurrenceId
-    );
-
-    if (!publicacion) {
+    let publicacionActual = publicacionesCache.find(item => String(item.ocurrencia_id) === occurrenceId);
+    if (!publicacionActual) {
         await actualizarPublicaciones();
-
-        const recargada = publicacionesCache.find(
-            item => String(item.ocurrencia_id) === occurrenceId
-        );
-
-        if (!recargada) {
+        publicacionActual = publicacionesCache.find(item => String(item.ocurrencia_id) === occurrenceId);
+        if (!publicacionActual) {
             throw new Error('La ocurrencia solicitada no está disponible en Laravel: ' + occurrenceId);
         }
     }
 
-    const publicacionActual = publicacionesCache.find(
-        item => String(item.ocurrencia_id) === occurrenceId
-    );
+    // Validar el destino ANTES de tocar el estado local. Facebook usa solo la lista del código.
+    let grupoLocal = null;
+    if (channel === 'facebook') {
+        grupoLocal = FACEBOOK_GRUPOS_PUBLICACION.find(grupo =>
+            String(grupo.facebook_id || '') === targetKey ||
+            obtenerClaveFacebookGrupo(grupo) === targetKey
+        );
+        if (!grupoLocal) {
+            throw new Error(`El destino Facebook "${targetKey}" no existe en FACEBOOK_GRUPOS_PUBLICACION; no se modificó el estado ni se publicó.`);
+        }
+        if (!FACEBOOK_ENABLED || !facebookDisponible) {
+            throw new Error('Facebook no está disponible para ejecutar el reintento.');
+        }
+    }
 
     const registro = obtenerRegistroEstado(estado, publicacionActual);
-
     if (channel === 'whatsapp') {
         registro.whatsapp = false;
         registro.enviada = false;
+        guardarJson(ARCHIVO_ESTADO, estado);
+        await procesarPublicaciones(client, grupoId, estado, { occurrenceId, channel, targetKey });
     } else {
-        for (const grupo of obtenerGruposFacebookPublicacion(publicacionActual)) {
-            if (
-                String(grupo.facebook_id) === targetKey ||
-                obtenerClaveFacebookGrupo(grupo) === targetKey
-            ) {
-                registro.facebookGrupos[obtenerClaveFacebookGrupo(grupo)] = false;
-            }
-        }
-
+        const claveGrupo = obtenerClaveFacebookGrupo(grupoLocal);
+        registro.facebookGrupos[claveGrupo] = false;
         registro.facebook = false;
         registro.enviada = false;
+        guardarJson(ARCHIVO_ESTADO, estado);
+        await procesarPublicaciones(client, grupoId, estado, { occurrenceId, channel, targetKey });
     }
-
-    guardarJson(ARCHIVO_ESTADO, estado);
-
-    await procesarPublicaciones(
-        client,
-        grupoId,
-        estado,
-        {
-            occurrenceId,
-            channel,
-            targetKey,
-        }
-    );
 
     const actualizado = obtenerRegistroEstado(estado, publicacionActual);
     const exitoso = channel === 'whatsapp'
         ? actualizado.whatsapp === true
-        : obtenerGruposFacebookPublicacion(publicacionActual).some(
-            grupo => (
-                String(grupo.facebook_id) === targetKey ||
-                obtenerClaveFacebookGrupo(grupo) === targetKey
-            ) && actualizado.facebookGrupos?.[obtenerClaveFacebookGrupo(grupo)] === true
-        );
-
+        : actualizado.facebookGrupos?.[obtenerClaveFacebookGrupo(grupoLocal)] === true;
     if (!exitoso) {
-        throw new Error(
-            'WBot no pudo completar el reintento de ' +
-            channel + ' para ' + occurrenceId
-        );
+        throw new Error('WBot terminó el procesamiento sin confirmar el reintento de ' + channel + ' para ' + occurrenceId + '.');
     }
-
-    return {
-        occurrence_id: occurrenceId,
-        channel,
-        target_key: targetKey,
-        success: true,
-    };
+    return { occurrence_id: occurrenceId, channel, target_key: targetKey, success: true };
 }
 
 async function revisarComandosLaravel(client, grupoId, estado) {
@@ -6367,24 +6668,27 @@ async function revisarComandosLaravel(client, grupoId, estado) {
             ' (' + comando.type + ')'
         );
 
+        let resultado;
         try {
-            const resultado = await ejecutarComandoLaravel(
-                client,
-                grupoId,
-                estado,
-                comando
-            );
-
-            await completarComando(comando.id, resultado);
-
-            console.log('[Laravel] Comando #' + comando.id + ' completado.');
+            resultado = await ejecutarComandoLaravel(client, grupoId, estado, comando);
         } catch (error) {
-            await fallarComando(comando.id, error.message, true);
+            // Si el clic final pudo haberse realizado, no reencolar a ciegas.
+            const retry = error?.outcomeUncertain !== true;
+            try {
+                await fallarComando(comando.id, error.message, retry);
+            } catch (reportError) {
+                console.error(`[Laravel] No se pudo reportar el fallo del comando #${comando.id}: ${reportError.message}`);
+            }
+            console.error('[Laravel] Comando #' + comando.id + ' falló:', error.message);
+            return true;
+        }
 
-            console.error(
-                '[Laravel] Comando #' + comando.id + ' falló:',
-                error.message
-            );
+        try {
+            await completarComando(comando.id, resultado);
+            console.log('[Laravel] Comando #' + comando.id + ' completado.');
+        } catch (ackError) {
+            // La publicación ya fue confirmada. No llamar fallarComando: podría provocar duplicados.
+            console.error(`[Laravel] La publicación del comando #${comando.id} terminó, pero no se pudo confirmar el comando: ${ackError.message}. No se republicará automáticamente.`);
         }
 
         return true;
@@ -6439,7 +6743,7 @@ async function procesarPublicaciones(
                     return false;
                 }
 
-                const isForced = forcedExecution?.occurrenceId === publicacion.ocurrencia_id;
+                const isForced = !!forcedExecution && String(forcedExecution.occurrenceId) === String(publicacion.ocurrencia_id);
 
                 if (!isForced && publicacion.fecha !== fechaActual) {
                     return false;
@@ -6452,6 +6756,10 @@ async function procesarPublicaciones(
                 if (!isForced && fechaHoraPublicacion > ahoraClave) {
                     return false;
                 }
+
+                // Un reintento explícito debe procesarse aunque el agregado de estado
+                // de Laravel indique que todos sus destinos ya fueron completados.
+                if (isForced) return true;
 
                 /*
                  * Una publicación sigue pendiente mientras
@@ -6759,9 +7067,11 @@ async function procesarPublicaciones(
 
                 if (requiereDestino(publicacion, 'facebook') && (!forcedExecution || forcedExecution.channel === 'facebook')) {
 
-                    const gruposFacebook =
-                    obtenerGruposFacebookPublicacion(
-                        publicacion
+                    // MODO TEMPORAL: usar exclusivamente los grupos locales
+                    // definidos en FACEBOOK_GRUPOS_PUBLICACION. No consultar
+                    // los grupos destino de esta publicación en Laravel.
+                    const gruposFacebook = FACEBOOK_GRUPOS_PUBLICACION.map(
+                        grupo => ({ ...grupo })
                     );
 
                     if (!FACEBOOK_ENABLED || !facebookDisponible) {
@@ -6774,7 +7084,7 @@ async function procesarPublicaciones(
                     } else if (gruposFacebook.length === 0) {
 
                         console.warn(
-                            `[Facebook] ID ${publicacion.id} no tiene grupos destino configurados.`
+                            `[Facebook] ID ${publicacion.id} no tiene grupos locales en FACEBOOK_GRUPOS_PUBLICACION.`
                         );
 
                     } else {
@@ -6797,6 +7107,55 @@ async function procesarPublicaciones(
                             );
                             continue;
                         }
+
+                        // Encolar cada grupo en una cola global con concurrencia limitada.
+                        // tareas simultáneas. Cada tarea obtiene su propia pestaña para
+                        // que la navegación y el compositor no interfieran entre grupos.
+                        const promesasTrabajosFacebook = [];
+                        for (const grupoFacebook of gruposPendientes) {
+                            const claveTrabajo = `${publicacion.ocurrencia_id || publicacion.id}:${obtenerClaveFacebookGrupo(grupoFacebook)}`;
+                            const promesaTrabajo = encolarTrabajoFacebook(claveTrabajo, async (pageTrabajo) => {
+                                let executionIdFacebook = null;
+                                let clicPublicarRealizado = false;
+                                try {
+                                    console.log(`[Laravel][Facebook][IDs] grupo="${grupoFacebook.nombre}" idRegistro=${grupoFacebook.id ?? 'null'} facebook_id=${grupoFacebook.facebook_id ?? 'null'} targetKey=${String(grupoFacebook.facebook_id ?? '')}`);
+                                    const ejecucionFacebook = await iniciarEjecucionSeguro(
+                                        publicacion, 'facebook', String(grupoFacebook.facebook_id), grupoFacebook.id ?? null
+                                    );
+                                    if (ejecucionFacebook?.data?.status === 'succeeded') {
+                                        marcarFacebookGrupoComoEnviado(estado, publicacion, grupoFacebook);
+                                        return { success: true, targetKey: obtenerClaveFacebookGrupo(grupoFacebook), alreadySucceeded: true };
+                                    }
+                                    executionIdFacebook = ejecucionFacebook?.data?.id || null;
+                                    // La función solo retorna cuando confirma que Facebook aceptó la publicación.
+                                    await publicarDirectamenteEnMuroGrupoFacebook(publicacion, rutaImagen, grupoFacebook, pageTrabajo);
+                                    marcarFacebookGrupoComoEnviado(estado, publicacion, grupoFacebook);
+                                    await completarEjecucionSeguro(executionIdFacebook, null);
+                                    console.log(`[Facebook][Muro] ✓ Publicación confirmada: ${grupoFacebook.nombre}`);
+                                    return { success: true, targetKey: obtenerClaveFacebookGrupo(grupoFacebook) };
+                                } catch (error) {
+                                    if (pageTrabajo?.__wbotFacebookPostClickRealizado) {
+                                        error.outcomeUncertain = true;
+                                        error.message = 'Resultado incierto: se hizo clic en Publicar, pero no se pudo confirmar el resultado en Facebook. ' + error.message;
+                                    }
+                                    await fallarEjecucionSeguro(executionIdFacebook, error);
+                                    registrarPublicacionFallida(publicacion, 'facebook', error);
+                                    console.error(`[Facebook][Muro] Falló "${grupoFacebook.nombre}": ${error.message}`);
+                                    await cerrarCompositoresFacebook(pageTrabajo, `fallo en ${grupoFacebook.nombre}`).catch(() => {});
+                                    throw error;
+                                }
+                            });
+                            if (forcedExecution && forcedExecution.channel === 'facebook') {
+                                promesasTrabajosFacebook.push(promesaTrabajo);
+                            }
+                        }
+                        if (forcedExecution && forcedExecution.channel === 'facebook') {
+                            const resultados = await Promise.all(promesasTrabajosFacebook);
+                            if (!resultados.some(resultado => resultado?.success && resultado.targetKey === String(forcedExecution.targetKey))) {
+                                throw new Error(`La cola no confirmó el trabajo Facebook para ${forcedExecution.targetKey}.`);
+                            }
+                        }
+                        continue;
 
                         const registroFacebook = obtenerRegistroEstado(
                             estado,
@@ -7097,6 +7456,8 @@ async function procesarPublicaciones(
         console.error(
             error.stack
         );
+        // En un reintento forzado el llamador debe recibir el resultado real de la cola.
+        if (forcedExecution) throw error;
     }
 }
 
@@ -7252,6 +7613,7 @@ async function iniciar() {
     if (!navegadorPrincipal) {
         navegadorPrincipal =
         await puppeteer.launch({
+            executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
             headless: false,
             userDataDir: CARPETA_PERFIL_COMUN,
             defaultViewport: {
