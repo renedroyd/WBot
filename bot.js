@@ -1122,7 +1122,8 @@ function obtenerGruposFacebookPublicacion(publicacion) {
             };
         }
 
-        if (!grupo.nombre && !grupo.facebook_id && !grupo.url) continue;
+        // Los nombres de relleno no son destinos válidos, aunque incluyan un ID.
+        if (!grupo.nombre || /^grupo\s+facebook(?:\s+\d+)?$/i.test(grupo.nombre)) continue;
 
         // Si Facebook/Laravel conserva un nombre contaminado, nunca lo
         // llevamos al selector. El ID/URL tiene prioridad como identidad.
