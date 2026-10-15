@@ -125,8 +125,8 @@ String(process.env.FACEBOOK_ENABLED || 'false').toLowerCase() === 'true';
 const FACEBOOK_ORIGEN_URL =
 process.env.FACEBOOK_ORIGEN_URL || '';
 
-// Destinos de publicación de Facebook: esta lista local es la fuente de verdad
-// para publicación y reintentos hasta reactivar explícitamente la selección Laravel.
+// La selección de grupos de publicación procede de las asociaciones
+// de cada publicación devueltas por Laravel.
 const FACEBOOK_SYNC_INTERVAL_MS = Math.max(
     5 * 60 * 1000,
     parseInt(process.env.FACEBOOK_SYNC_INTERVAL_MS || String(30 * 60 * 1000), 10)
@@ -162,36 +162,6 @@ Math.max(
         10
     )
 );
-
-// Grupos de destino definidos localmente. Por ahora se ignora el catálogo
-// y la selección de grupos que pueda enviar Laravel; cambiar esta lista
-// manualmente hasta que se reactive la integración con Laravel.
-const FACEBOOK_GRUPOS_PUBLICACION = [
-    {
-        id: 52,
-        facebook_id: '3496394560493538',
-        nombre: 'Revolico Guantanamo 2025',
-        url: 'https://www.facebook.com/groups/3496394560493538', /////PENDIENTES DE APROBACION
-    },
-    {
-        id: 53,
-        facebook_id: '2058351861183452',
-        nombre: 'REVOLICO GUANTANAMO Y SUS MUNICIPIOS',
-        url: 'https://www.facebook.com/groups/2058351861183452', //////EN ESTE GRUPO SI
-    },
-    {
-        id: 54,
-        facebook_id: '1005787863939670',
-        nombre: 'Revolico Los Coco Confluente',
-        url: 'https://www.facebook.com/groups/1005787863939670', ////////ESTE TAMBIEN
-    },
-    {
-        id: 55,
-        facebook_id: '4929809533739641',
-        nombre: 'Lo mejor de rebolico gtmo',
-        url: 'https://www.facebook.com/groups/4929809533739641',  ////PENDIENTES DE APROBACION
-    },
-];
 
 // MODO DE REFINAMIENTO DEL FLUJO FACEBOOK
 // ------------------------------------------------------------
@@ -858,7 +828,7 @@ function marcarFacebookGrupoComoEnviado(
     registro.fecha = obtenerFechaActual();
     registro.facebookGrupos[obtenerClaveFacebookGrupo(grupo)] = true;
 
-    const grupos = FACEBOOK_GRUPOS_PUBLICACION;
+    const grupos = obtenerGruposFacebookPublicacion(publicacion);
 
     registro.facebook =
     grupos.length > 0 &&
@@ -1172,6 +1142,36 @@ function obtenerGruposFacebookPublicacion(publicacion) {
     return grupos;
 }
 
+function normalizarGruposFacebookPublicacion(grupos) {
+    if (!Array.isArray(grupos)) return [];
+    const salida = [];
+    const vistos = new Set();
+
+    for (const grupo of grupos) {
+        if (!grupo || typeof grupo !== 'object') continue;
+        const url = String(grupo.url || grupo.href || '').trim();
+        const facebookId = String(
+            grupo.facebook_id || grupo.facebookId || grupo.group_id || grupo.groupId ||
+            extraerIdGrupoFacebook(url) || ''
+        ).trim();
+        const nombre = limpiarNombreGrupoFacebook(grupo.nombre || grupo.name || '');
+        if (!facebookId && !url) continue;
+        if (!nombre || /^grupo\s+facebook(?:\s+\d+)?$/i.test(nombre)) continue;
+
+        const clave = normalizarDestino(facebookId || url);
+        if (!clave || vistos.has(clave)) continue;
+        vistos.add(clave);
+        salida.push({
+            id: grupo.id ?? null,
+            facebook_id: facebookId || extraerIdGrupoFacebook(url),
+            nombre,
+            url: url || (facebookId ? `https://www.facebook.com/groups/${facebookId}` : null),
+        });
+    }
+
+    return salida;
+}
+
 function obtenerClaveFacebookGrupo(grupo) {
     return normalizarDestino(
         grupo?.facebook_id || grupo?.url || grupo?.id || grupo?.nombre || ''
@@ -1245,7 +1245,7 @@ function normalizarGrupoFacebookDescubierto(grupo) {
     ? String(grupo.facebook_id).trim()
     : null;
 
-    if (!nombre || (!url && !facebookId)) return null;
+    if (!nombre || /^grupo\s+facebook(?:\s+\d+)?$/i.test(nombre) || (!url && !facebookId)) return null;
 
     const idFinal = facebookId || extraerIdGrupoFacebook(url);
 
@@ -1367,11 +1367,9 @@ async function descubrirGruposFacebookParaSincronizacion(page, timeout = 30000) 
                         // nombre + "You last visited" + "See group" en el mismo nodo.
                         let nombre = normalizar(texto);
 
-                        if (!nombre && facebookId) {
-                            nombre = `Grupo Facebook ${facebookId}`;
-                        }
-
-                        if (!nombre) return;
+                        // No inventar nombres a partir del ID: el fallback genera
+                        // entradas falsas como "Grupo Facebook 123..." en Filament.
+                        if (!nombre || /^grupo\s+facebook(?:\s+\d+)?$/i.test(nombre)) return;
 
                         // Limpieza local adicional antes de enviar el registro al Node.
                         nombre = nombre
@@ -4804,18 +4802,16 @@ async function hacerClickAtrasFacebook(page, timeout = 10000) {
 }
 
 async function configurarGruposCompartirFacebook(page, grupos, timeout = 30000) {
-    // Ignorar deliberadamente el argumento `grupos` que llega desde Laravel.
-    // La selección utiliza exclusivamente FACEBOOK_GRUPOS_PUBLICACION.
-    const gruposValidos = FACEBOOK_GRUPOS_PUBLICACION.map(grupo => ({ ...grupo }));
+    const gruposValidos = normalizarGruposFacebookPublicacion(grupos);
 
     if (gruposValidos.length === 0) {
         throw new Error(
-            'No hay grupos de Facebook definidos en FACEBOOK_GRUPOS_PUBLICACION.'
+            'La publicación no tiene grupos de Facebook seleccionados en Laravel.'
         );
     }
 
     console.log(
-        `[Facebook] Seleccionando ${gruposValidos.length} grupo(s) definidos en el código (Laravel ignorado para los grupos).`
+        `[Facebook] Seleccionando ${gruposValidos.length} grupo(s) seleccionados en Laravel.`
     );
 
     const shareGroupsAbierto = await hacerClickPorTexto(
@@ -5554,9 +5550,10 @@ async function crearPublicacionOrigenFacebook(
 
     const texto = publicacion.texto || '';
 
-    // Los grupos de destino se toman de FACEBOOK_GRUPOS_PUBLICACION.
-    // `gruposDestino` puede venir vacío o desde Laravel, pero no decide
-    // a qué grupos de Facebook se intentará publicar.
+    const gruposSeleccionados = normalizarGruposFacebookPublicacion(gruposDestino);
+    if (gruposSeleccionados.length === 0) {
+        throw new Error('La publicación no tiene grupos de Facebook seleccionados en Laravel.');
+    }
 
     console.log('');
     console.log('='.repeat(70));
@@ -5565,7 +5562,7 @@ async function crearPublicacionOrigenFacebook(
     console.log(`ID     : ${publicacion.id}`);
     console.log(`Origen : ${FACEBOOK_ORIGEN_URL}`);
     console.log(`Imagen : ${rutaImagen}`);
-    console.log(`Grupos : ${FACEBOOK_GRUPOS_PUBLICACION.map(g => g.nombre).join(' | ')} (definidos en código)`);
+    console.log(`Grupos : ${gruposSeleccionados.map(g => g.nombre).join(' | ')} (seleccionados en Laravel)`);
     console.log(`Texto  : ${texto}`);
 
     await cerrarModalInformacionFacebook(facebookPage, Math.min(FACEBOOK_TIMEOUT_MS, 10000));
@@ -6626,15 +6623,17 @@ async function ejecutarComandoLaravel(client, grupoId, estado, comando) {
         }
     }
 
-    // Validar el destino ANTES de tocar el estado local. Facebook usa solo la lista del código.
+    // Validar el destino contra los grupos asociados a la publicación en Laravel
+    // ANTES de tocar el estado local.
     let grupoLocal = null;
     if (channel === 'facebook') {
-        grupoLocal = FACEBOOK_GRUPOS_PUBLICACION.find(grupo =>
+        const gruposSeleccionados = obtenerGruposFacebookPublicacion(publicacionActual);
+        grupoLocal = gruposSeleccionados.find(grupo =>
             String(grupo.facebook_id || '') === targetKey ||
             obtenerClaveFacebookGrupo(grupo) === targetKey
         );
         if (!grupoLocal) {
-            throw new Error(`El destino Facebook "${targetKey}" no existe en FACEBOOK_GRUPOS_PUBLICACION; no se modificó el estado ni se publicó.`);
+            throw new Error(`El destino Facebook "${targetKey}" no está seleccionado en la publicación de Laravel; no se modificó el estado ni se publicó.`);
         }
         if (!FACEBOOK_ENABLED || !facebookDisponible) {
             throw new Error('Facebook no está disponible para ejecutar el reintento.');
@@ -7079,12 +7078,8 @@ async function procesarPublicaciones(
 
                 if (requiereDestino(publicacion, 'facebook') && (!forcedExecution || forcedExecution.channel === 'facebook')) {
 
-                    // MODO TEMPORAL: usar exclusivamente los grupos locales
-                    // definidos en FACEBOOK_GRUPOS_PUBLICACION. No consultar
-                    // los grupos destino de esta publicación en Laravel.
-                    const gruposFacebook = FACEBOOK_GRUPOS_PUBLICACION.map(
-                        grupo => ({ ...grupo })
-                    );
+                    // Cada publicación solo se envía a los grupos seleccionados en Laravel.
+                    const gruposFacebook = obtenerGruposFacebookPublicacion(publicacion);
 
                     if (!FACEBOOK_ENABLED || !facebookDisponible) {
 
@@ -7096,7 +7091,7 @@ async function procesarPublicaciones(
                     } else if (gruposFacebook.length === 0) {
 
                         console.warn(
-                            `[Facebook] ID ${publicacion.id} no tiene grupos locales en FACEBOOK_GRUPOS_PUBLICACION.`
+                            `[Facebook] ID ${publicacion.id} no tiene grupos de Facebook seleccionados en Laravel.`
                         );
 
                     } else {
