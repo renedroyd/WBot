@@ -181,6 +181,11 @@ const LARAVEL_API_URL = (
 const LARAVEL_API_TOKEN =
 process.env.LARAVEL_API_TOKEN || '';
 
+const API_TIMEOUT_CONFIGURED_MS = Number.parseInt(process.env.BOT_API_TIMEOUT_MS || '', 10);
+const BOT_API_TIMEOUT_MS = Number.isFinite(API_TIMEOUT_CONFIGURED_MS) && API_TIMEOUT_CONFIGURED_MS >= 1000
+    ? API_TIMEOUT_CONFIGURED_MS
+    : 15000;
+
 const INTERVALO_ACTUALIZACION_API = 60 * 1000;
 
 // ------------------------------------------------------------
@@ -1571,6 +1576,7 @@ async function sincronizarGruposFacebookConLaravel(grupos) {
 
     const response = await fetch(url, {
         method: 'POST',
+        signal: AbortSignal.timeout(BOT_API_TIMEOUT_MS),
         headers: {
             'Accept': 'application/json',
             'Content-Type': 'application/json',
@@ -1716,7 +1722,7 @@ async function obtenerPublicacionesDesdeLaravel() {
     const timeout =
     setTimeout(
         () => controller.abort(),
-               15000
+               BOT_API_TIMEOUT_MS
     );
 
     try {

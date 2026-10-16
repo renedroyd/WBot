@@ -4,7 +4,8 @@
   "description": "Bot de publicaciones programadas para WhatsApp",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node bot.js",
+    "test": "node --test"
   },
   "dependencies": {
     "@wppconnect-team/wppconnect": "^2.3.4",
