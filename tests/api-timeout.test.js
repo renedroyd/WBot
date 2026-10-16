@@ -29,6 +29,7 @@ function fetchUntilAborted(_url, options = {}) {
 
 test('Laravel API requests fail with a clear message when they time out', async () => {
     const originalFetch = global.fetch;
+    const keepAlive = setTimeout(() => {}, 5000);
     global.fetch = fetchUntilAborted;
 
     try {
@@ -37,12 +38,14 @@ test('Laravel API requests fail with a clear message when they time out', async 
             /La solicitud a Laravel .* superó el límite de 1000 ms/
         );
     } finally {
+        clearTimeout(keepAlive);
         global.fetch = originalFetch;
     }
 });
 
 test('heartbeat timeout releases the in-flight guard so later heartbeats can run', async () => {
     const originalFetch = global.fetch;
+    const keepAlive = setTimeout(() => {}, 5000);
     global.fetch = fetchUntilAborted;
 
     try {
@@ -61,6 +64,7 @@ test('heartbeat timeout releases the in-flight guard so later heartbeats can run
 
         assert.equal(await heartbeat.enviarHeartbeat('online'), true);
     } finally {
+        clearTimeout(keepAlive);
         global.fetch = originalFetch;
     }
 });
