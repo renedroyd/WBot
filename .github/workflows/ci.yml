@@ -28,3 +28,6 @@ jobs:
           node --check bot.js
           node --check heartbeat.js
           node --check laravel-api.js
+
+      - name: Run tests
+        run: npm test
