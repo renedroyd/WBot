@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@wppconnect-team/wppconnect": "^2.3.4",
-    "dotenv": "^18.0.5"
+    "dotenv": "^18.0.5",
+    "puppeteer": "^24.43.1"
   }
 }
