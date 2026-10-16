@@ -13,6 +13,11 @@ const HEARTBEAT_INTERVAL = Math.max(
     10000,
     Number(process.env.BOT_HEARTBEAT_INTERVAL || 30000)
 );
+const API_TIMEOUT_DEFAULT_MS = 15000;
+const API_TIMEOUT_CONFIGURED_MS = Number.parseInt(process.env.BOT_API_TIMEOUT_MS || '', 10);
+const API_TIMEOUT_MS = Number.isFinite(API_TIMEOUT_CONFIGURED_MS) && API_TIMEOUT_CONFIGURED_MS >= 1000
+    ? API_TIMEOUT_CONFIGURED_MS
+    : API_TIMEOUT_DEFAULT_MS;
 
 let heartbeatTimer = null;
 let heartbeatEnviando = false;
@@ -223,6 +228,7 @@ async function enviarHeartbeat(status = estadoHeartbeat.status, extra = {}) {
             LARAVEL_API_URL + '/api/bot/status',
             {
                 method: 'POST',
+                signal: AbortSignal.timeout(API_TIMEOUT_MS),
                 headers: {
                     'Authorization': 'Bearer ' + LARAVEL_API_TOKEN,
                     'Content-Type': 'application/json',
