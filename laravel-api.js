@@ -15,17 +15,19 @@ async function request(path, options = {}) {
     }
 
     let response;
+    let text;
     try {
         response = await fetch(LARAVEL_API_URL + path, {
             ...options,
             signal: options.signal || AbortSignal.timeout(API_TIMEOUT_MS),
             headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-            Authorization: 'Bearer ' + LARAVEL_API_TOKEN,
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                Authorization: 'Bearer ' + LARAVEL_API_TOKEN,
                 ...(options.headers || {}),
             },
         });
+        text = await response.text();
     } catch (error) {
         if (error && error.name === 'TimeoutError') {
             throw new Error(`La solicitud a Laravel (${path}) superó el límite de ${API_TIMEOUT_MS} ms.`, { cause: error });
@@ -33,7 +35,6 @@ async function request(path, options = {}) {
         throw error;
     }
 
-    const text = await response.text();
     let body = {};
 
     try {
