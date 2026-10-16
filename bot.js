@@ -8070,19 +8070,22 @@ process.on('uncaughtException', error => {
 // ============================================================
 
 let cierreBotEnCurso = null;
+let codigoSalidaCierre = 0;
 
 async function cerrarBot(codigoSalida = 0, motivo = 'solicitud de cierre') {
     if (cierreBotEnCurso) {
+        if (codigoSalida !== 0) codigoSalidaCierre = 1;
         return cierreBotEnCurso;
     }
 
+    codigoSalidaCierre = codigoSalida;
     cierreBotEnCurso = (async () => {
         console.log('');
         console.log(`Cerrando bot (${motivo})...`);
 
         actualizarEstadoHeartbeat({
-            status: codigoSalida === 0 ? 'stopping' : 'error',
-            message: codigoSalida === 0 ? 'Cerrando bot' : 'Cierre por error fatal',
+            status: codigoSalidaCierre === 0 ? 'stopping' : 'error',
+            message: codigoSalidaCierre === 0 ? 'Cerrando bot' : 'Cierre por error fatal',
         });
 
         // Cada paso se intenta de forma independiente para que un fallo al
@@ -8108,7 +8111,7 @@ async function cerrarBot(codigoSalida = 0, motivo = 'solicitud de cierre') {
                 ]);
             } catch (error) {
                 console.error(`[Cierre] Error cerrando ${nombre}:`, error?.stack || error);
-                codigoSalida = 1;
+                codigoSalidaCierre = 1;
             } finally {
                 if (temporizador) clearTimeout(temporizador);
             }
@@ -8118,10 +8121,10 @@ async function cerrarBot(codigoSalida = 0, motivo = 'solicitud de cierre') {
             liberarBloqueoWhatsApp();
         } catch (error) {
             console.error('[Cierre] Error liberando el bloqueo de WhatsApp:', error?.stack || error);
-            codigoSalida = 1;
+            codigoSalidaCierre = 1;
         }
 
-        process.exit(codigoSalida);
+        process.exit(codigoSalidaCierre);
     })();
 
     return cierreBotEnCurso;
