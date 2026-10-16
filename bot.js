@@ -581,30 +581,37 @@ function liberarBloqueoWhatsApp() {
 // ============================================================
 
 function cargarJson(ruta, valorPorDefecto) {
-
-    try {
-
-        if (!fs.existsSync(ruta)) {
-            return valorPorDefecto;
-        }
-
-        const contenido =
-        fs.readFileSync(
-            ruta,
-            'utf8'
-        );
-
-        return JSON.parse(contenido);
-
-    } catch (error) {
-
-        console.error(
-            `ERROR leyendo ${ruta}:`,
-            error.message
-        );
-
+    if (!fs.existsSync(ruta)) {
         return valorPorDefecto;
     }
+
+    let contenido;
+    try {
+        contenido = fs.readFileSync(ruta, 'utf8');
+    } catch (error) {
+        throw new Error(
+            `No se pudo leer ${ruta}; se cancela el arranque para evitar sobrescribir el estado: ${error.message}`,
+            { cause: error }
+        );
+    }
+
+    let datos;
+    try {
+        datos = JSON.parse(contenido);
+    } catch (error) {
+        throw new Error(
+            `El archivo ${ruta} contiene JSON inválido. Se conserva sin modificar y se cancela el arranque para evitar perder el historial.`,
+            { cause: error }
+        );
+    }
+
+    if (!datos || typeof datos !== 'object' || Array.isArray(datos)) {
+        throw new Error(
+            `El archivo ${ruta} no contiene un objeto JSON de estado. Se conserva sin modificar y se cancela el arranque.`
+        );
+    }
+
+    return datos;
 }
 
 function guardarJson(ruta, datos) {
