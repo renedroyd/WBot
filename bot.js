@@ -8095,11 +8095,22 @@ async function cerrarBot(codigoSalida = 0, motivo = 'solicitud de cierre') {
         ];
 
         for (const [nombre, cerrar] of pasosCierre) {
+            let temporizador = null;
             try {
-                await cerrar();
+                await Promise.race([
+                    cerrar(),
+                    new Promise((_, reject) => {
+                        temporizador = setTimeout(
+                            () => reject(new Error('Tiempo límite de 10 s al cerrar el recurso.')),
+                            10000
+                        );
+                    }),
+                ]);
             } catch (error) {
                 console.error(`[Cierre] Error cerrando ${nombre}:`, error?.stack || error);
                 codigoSalida = 1;
+            } finally {
+                if (temporizador) clearTimeout(temporizador);
             }
         }
 
