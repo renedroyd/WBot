@@ -8049,88 +8049,107 @@ async function iniciar() {
 // MANEJO DE ERRORES
 // ============================================================
 
-process.on(
-    'unhandledRejection',
-    error => {
+// Los errores no controlados se consideran fatales: el proceso no debe
+// continuar publicando si su estado interno puede ser inconsistente.
+process.on('unhandledRejection', error => {
+    const detalle = error?.stack || error?.message || String(error);
+    actualizarEstadoHeartbeat({
+        status: 'error',
+        message: 'Unhandled rejection; cerrando el bot',
+        lastError: error?.message || String(error),
+        lastErrorAt: new Date().toISOString(),
+    });
+    console.error('\nUNHANDLED REJECTION:');
+    console.error(detalle);
+    void cerrarBot(1, 'unhandledRejection');
+});
 
-        actualizarEstadoHeartbeat({
-            status: 'error',
-            message: 'Unhandled rejection',
-            lastError: error?.message || String(error),
-            lastErrorAt: new Date().toISOString(),
-        });
-
-        void enviarHeartbeat('error');
-
-        console.error('');
-        console.error(
-            'UNHANDLED REJECTION:'
-        );
-
-        console.error(error);
-    }
-);
-
-process.on(
-    'uncaughtException',
-    error => {
-
-        actualizarEstadoHeartbeat({
-            status: 'error',
-            message: 'Uncaught exception',
-            lastError: error?.message || String(error),
-            lastErrorAt: new Date().toISOString(),
-        });
-
-        void enviarHeartbeat('error');
-
-        console.error('');
-        console.error(
-            'UNCAUGHT EXCEPTION:'
-        );
-
-        console.error(
-            'Esto normalmente indica un error no controlado.'
-        );
-
-        console.error(error);
-    }
-);
+process.on('uncaughtException', error => {
+    const detalle = error?.stack || error?.message || String(error);
+    actualizarEstadoHeartbeat({
+        status: 'error',
+        message: 'Uncaught exception; cerrando el bot',
+        lastError: error?.message || String(error),
+        lastErrorAt: new Date().toISOString(),
+    });
+    console.error('\nUNCAUGHT EXCEPTION:');
+    console.error('El proceso terminará tras intentar liberar los recursos.');
+    console.error(detalle);
+    void cerrarBot(1, 'uncaughtException');
+});
 
 // ============================================================
 // CIERRE LIMPIO
 // ============================================================
 
-async function cerrarBot() {
+let cierreBotEnCurso = null;
+let codigoSalidaCierre = 0;
 
-    console.log('');
-    console.log(
-        'Cerrando bot...'
-    );
+async function cerrarBot(codigoSalida = 0, motivo = 'solicitud de cierre') {
+    if (cierreBotEnCurso) {
+        if (codigoSalida !== 0) codigoSalidaCierre = 1;
+        return cierreBotEnCurso;
+    }
 
-    actualizarEstadoHeartbeat({
-        status: 'stopping',
-        message: 'Cerrando bot',
-    });
+    codigoSalidaCierre = codigoSalida;
+    cierreBotEnCurso = (async () => {
+        console.log('');
+        console.log(`Cerrando bot (${motivo})...`);
 
-    await detenerHeartbeat();
-    await cerrarWhatsApp();
-    await cerrarFacebook();
-    await cerrarNavegadorPrincipal();
-    liberarBloqueoWhatsApp();
+        actualizarEstadoHeartbeat({
+            status: codigoSalidaCierre === 0 ? 'stopping' : 'error',
+            message: codigoSalidaCierre === 0 ? 'Cerrando bot' : 'Cierre por error fatal',
+        });
 
-    process.exit(0);
+        // Cada paso se intenta de forma independiente para que un fallo al
+        // cerrar un recurso no impida liberar el resto.
+        const pasosCierre = [
+            ['heartbeat', () => detenerHeartbeat()],
+            ['WhatsApp', () => cerrarWhatsApp()],
+            ['Facebook', () => cerrarFacebook()],
+            ['Chromium', () => cerrarNavegadorPrincipal()],
+        ];
+
+        for (const [nombre, cerrar] of pasosCierre) {
+            let temporizador = null;
+            try {
+                await Promise.race([
+                    cerrar(),
+                    new Promise((_, reject) => {
+                        temporizador = setTimeout(
+                            () => reject(new Error('Tiempo límite de 10 s al cerrar el recurso.')),
+                            10000
+                        );
+                    }),
+                ]);
+            } catch (error) {
+                console.error(`[Cierre] Error cerrando ${nombre}:`, error?.stack || error);
+                codigoSalidaCierre = 1;
+            } finally {
+                if (temporizador) clearTimeout(temporizador);
+            }
+        }
+
+        try {
+            liberarBloqueoWhatsApp();
+        } catch (error) {
+            console.error('[Cierre] Error liberando el bloqueo de WhatsApp:', error?.stack || error);
+            codigoSalidaCierre = 1;
+        }
+
+        process.exit(codigoSalidaCierre);
+    })();
+
+    return cierreBotEnCurso;
 }
 
-process.on(
-    'SIGINT',
-    cerrarBot
-);
+process.on('SIGINT', () => {
+    void cerrarBot(0, 'SIGINT');
+});
 
-process.on(
-    'SIGTERM',
-    cerrarBot
-);
+process.on('SIGTERM', () => {
+    void cerrarBot(0, 'SIGTERM');
+});
 
 // ============================================================
 // EJECUTAR
