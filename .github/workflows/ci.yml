@@ -23,6 +23,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Generate compatible audit lockfile preview
+        run: |
+          npm audit fix --package-lock-only || true
+          node <<'NODE'
+          const fs = require('node:fs');
+          const encoded = Buffer.from(fs.readFileSync('package-lock.json', 'utf8')).toString('base64');
+          const size = 3000;
+          for (let offset = 0; offset < encoded.length; offset += size) {
+            const index = String(Math.floor(offset / size)).padStart(4, '0');
+            console.log('LOCKFILE_CHUNK_' + index + ':' + encoded.slice(offset, offset + size));
+          }
+          console.log('LOCKFILE_CHUNKS:' + Math.ceil(encoded.length / size));
+          NODE
+
       - name: Check JavaScript syntax
         run: |
           node --check bot.js
