@@ -1218,17 +1218,20 @@ function obtenerGruposWhatsAppPublicacion(publicacion) {
     return salida;
 }
 function obtenerClaveWhatsAppGrupo(grupo) { return normalizarDestino(grupo?.whatsapp_id || grupo?.whatsappId || grupo?.wa_id || grupo?.id || grupo?.name || grupo?.nombre || ''); }
+function tieneCatalogoWhatsAppEnPayload(publicacion) {
+    return ['whatsapp_groups', 'whatsappGroups', 'whatsapp_grupos', 'whatsappGrupos'].some(key => Object.prototype.hasOwnProperty.call(publicacion || {}, key));
+}
 function whatsappGrupoFueEnviado(estado, publicacion, grupo) {
     const registro = estado[obtenerClavePublicacion(publicacion)];
     if (!registro || registro.fecha !== obtenerFechaActual()) return false;
     const grupos = obtenerGruposWhatsAppPublicacion(publicacion);
     const clave = obtenerClaveWhatsAppGrupo(grupo);
     if (registro.whatsappGrupos && typeof registro.whatsappGrupos === 'object') return registro.whatsappGrupos[clave] === true;
-    return grupos.length === 0 && registro.whatsapp === true;
+    return grupos.length === 0 && !tieneCatalogoWhatsAppEnPayload(publicacion) && registro.whatsapp === true;
 }
 function whatsappPublicacionFueEnviada(estado, publicacion) {
     const grupos = obtenerGruposWhatsAppPublicacion(publicacion);
-    if (!grupos.length) return destinoFueEnviado(estado, publicacion, 'whatsapp');
+    if (!grupos.length) return !tieneCatalogoWhatsAppEnPayload(publicacion) && destinoFueEnviado(estado, publicacion, 'whatsapp');
     return grupos.every(grupo => whatsappGrupoFueEnviado(estado, publicacion, grupo));
 }
 function marcarWhatsAppGrupoComoEnviado(estado, publicacion, grupo) {
@@ -7081,7 +7084,8 @@ async function procesarPublicaciones(
                 // ------------------------------------------------
                 if (requiereDestino(publicacion, 'whatsapp') && (!forcedExecution || forcedExecution.channel === 'whatsapp')) {
                     const gruposSeleccionados = obtenerGruposWhatsAppPublicacion(publicacion);
-                    const gruposObjetivo = gruposSeleccionados.length ? gruposSeleccionados : (grupoId ? [{ id: null, whatsapp_id: String(grupoId), name: NOMBRE_GRUPO, legacy: true }] : []);
+                    const tieneCatalogoWhatsApp = tieneCatalogoWhatsAppEnPayload(publicacion);
+                    const gruposObjetivo = gruposSeleccionados.length ? gruposSeleccionados : (!tieneCatalogoWhatsApp && grupoId ? [{ id: null, whatsapp_id: String(grupoId), name: NOMBRE_GRUPO, legacy: true }] : []);
                     const gruposPendientes = gruposObjetivo.filter(grupo => {
                         if (forcedExecution?.targetKey) {
                             const target = normalizarDestino(forcedExecution.targetKey);
