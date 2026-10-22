@@ -16,6 +16,7 @@ const {
 } = require('./heartbeat');
 
 const {
+    sincronizarGruposWhatsApp,
     iniciarEjecucion,
     completarEjecucion,
     fallarEjecucion,
@@ -1199,6 +1200,66 @@ function obtenerClaveFacebookGrupo(grupo) {
     );
 }
 
+function obtenerGruposWhatsAppPublicacion(publicacion) {
+    if (!publicacion || typeof publicacion !== 'object') return [];
+    const candidatos = [publicacion.whatsapp_groups, publicacion.whatsappGroups, publicacion.whatsapp_grupos, publicacion.whatsappGrupos];
+    const salida = []; const vistos = new Set();
+    for (const candidato of candidatos) {
+        if (!Array.isArray(candidato)) continue;
+        for (const grupo of candidato) {
+            if (!grupo || typeof grupo !== 'object') continue;
+            const whatsappId = String(grupo.whatsapp_id || grupo.whatsappId || grupo.wa_id || '').trim();
+            const nombre = String(grupo.name || grupo.nombre || grupo.subject || '').trim();
+            const clave = normalizarDestino(whatsappId || grupo.id || nombre);
+            if (!clave || vistos.has(clave)) continue; vistos.add(clave);
+            salida.push({ id: grupo.id ?? null, whatsapp_id: whatsappId, name: nombre || whatsappId || String(grupo.id || 'Grupo WhatsApp') });
+        }
+    }
+    return salida;
+}
+function obtenerClaveWhatsAppGrupo(grupo) { return normalizarDestino(grupo?.whatsapp_id || grupo?.whatsappId || grupo?.wa_id || grupo?.id || grupo?.name || grupo?.nombre || ''); }
+function tieneCatalogoWhatsAppEnPayload(publicacion) {
+    return ['whatsapp_groups', 'whatsappGroups', 'whatsapp_grupos', 'whatsappGrupos'].some(key => Object.prototype.hasOwnProperty.call(publicacion || {}, key));
+}
+function whatsappGrupoFueEnviado(estado, publicacion, grupo) {
+    const registro = estado[obtenerClavePublicacion(publicacion)];
+    if (!registro || registro.fecha !== obtenerFechaActual()) return false;
+    const grupos = obtenerGruposWhatsAppPublicacion(publicacion);
+    const clave = obtenerClaveWhatsAppGrupo(grupo);
+    if (registro.whatsappGrupos && typeof registro.whatsappGrupos === 'object') return registro.whatsappGrupos[clave] === true;
+    return grupos.length === 0 && !tieneCatalogoWhatsAppEnPayload(publicacion) && registro.whatsapp === true;
+}
+function whatsappPublicacionFueEnviada(estado, publicacion) {
+    const grupos = obtenerGruposWhatsAppPublicacion(publicacion);
+    if (!grupos.length) return !tieneCatalogoWhatsAppEnPayload(publicacion) && destinoFueEnviado(estado, publicacion, 'whatsapp');
+    return grupos.every(grupo => whatsappGrupoFueEnviado(estado, publicacion, grupo));
+}
+function marcarWhatsAppGrupoComoEnviado(estado, publicacion, grupo) {
+    const clave = obtenerClavePublicacion(publicacion); const registro = obtenerRegistroEstado(estado, publicacion);
+    const grupos = obtenerGruposWhatsAppPublicacion(publicacion); registro.fecha = obtenerFechaActual();
+    if (!registro.whatsappGrupos || typeof registro.whatsappGrupos !== 'object') registro.whatsappGrupos = {};
+    registro.whatsappGrupos[obtenerClaveWhatsAppGrupo(grupo)] = true;
+    registro.whatsapp = grupos.length > 0 && grupos.every(g => registro.whatsappGrupos[obtenerClaveWhatsAppGrupo(g)] === true);
+    const destinos = obtenerDestinosPublicacion(publicacion);
+    const facebookCompleto = !destinos.includes('facebook') || obtenerGruposFacebookPublicacion(publicacion).every(g => registro.facebookGrupos?.[obtenerClaveFacebookGrupo(g)] === true);
+    registro.facebook = facebookCompleto;
+    registro.enviada = destinos.length > 0 && destinos.every(destino => destino === 'facebook' ? facebookCompleto : (destino === 'whatsapp' ? registro.whatsapp === true : registro[destino] === true));
+    estado[clave] = registro; guardarJson(ARCHIVO_ESTADO, estado); registrarPublicacionExitosa(publicacion, 'whatsapp');
+}
+async function sincronizarCatalogoGruposWhatsApp(client) {
+    try {
+        const chats = await client.listChats({ onlyGroups: true });
+        const groups = (Array.isArray(chats) ? chats : []).map(chat => {
+            const id = chat?.id?._serialized || chat?.id?.user || (typeof chat?.id === 'string' ? chat.id : '');
+            const name = chat?.name || chat?.formattedTitle || chat?.groupMetadata?.subject || '';
+            return { whatsapp_id: String(id || '').trim(), name: String(name || '').replace(/\\s+/g, ' ').trim() };
+        }).filter(group => group.whatsapp_id.includes('@g.us') && group.name);
+        if (!groups.length) { console.log('[WhatsApp] No hay grupos identificables para sincronizar con Laravel.'); return; }
+        const response = await sincronizarGruposWhatsApp(groups);
+        console.log('[WhatsApp] Catálogo sincronizado con Laravel: ' + (response.total ?? groups.length) + ' grupos.');
+    } catch (error) { console.warn('[WhatsApp] No se pudo sincronizar el catálogo de grupos:', error.message); }
+}
+
 function requiereDestino(publicacion, destino) {
     return obtenerDestinosPublicacion(publicacion).includes(destino);
 }
@@ -2157,8 +2218,9 @@ async function buscarGrupo(client) {
                 }
 
                 console.log(
-                    `Los grupos están disponibles, pero no aparece "${NOMBRE_GRUPO}".`
+                    `Los grupos están disponibles, pero no aparece "${NOMBRE_GRUPO}". Se usará la selección de grupos de Laravel.`
                 );
+                return null;
 
             } else {
 
@@ -2191,10 +2253,10 @@ async function buscarGrupo(client) {
         }
     }
 
-    throw new Error(
-        `No se encontró el grupo "${NOMBRE_GRUPO}" ` +
-        `después de ${MAX_INTENTOS} intentos.`
+    console.warn(
+        `No se encontró el grupo heredado "${NOMBRE_GRUPO}" después de ${MAX_INTENTOS} intentos. WBot continuará usando los grupos seleccionados desde Laravel.`
     );
+    return null;
 }
 
 // ============================================================
@@ -2438,7 +2500,7 @@ async function enviarImagenWhatsApp(
     );
 
     console.log(
-        `Grupo   : ${NOMBRE_GRUPO}`
+        `Grupo   : ${publicacion.whatsappGrupoActual || NOMBRE_GRUPO}`
     );
 
     console.log(
@@ -6673,6 +6735,19 @@ async function ejecutarComandoLaravel(client, grupoId, estado, comando) {
     // Validar el destino contra los grupos asociados a la publicación en Laravel
     // ANTES de tocar el estado local.
     let grupoLocal = null;
+    let grupoWhatsAppLocal = null;
+    if (channel === 'whatsapp') {
+        const gruposSeleccionados = obtenerGruposWhatsAppPublicacion(publicacionActual);
+        if (gruposSeleccionados.length > 0) {
+            grupoWhatsAppLocal = gruposSeleccionados.find(grupo =>
+                obtenerClaveWhatsAppGrupo(grupo) === normalizarDestino(targetKey) ||
+                normalizarDestino(grupo.name) === normalizarDestino(targetKey)
+            );
+            if (!grupoWhatsAppLocal) throw new Error('El destino WhatsApp "' + targetKey + '" no está seleccionado en la publicación de Laravel; no se modificó el estado ni se publicó.');
+        } else if (normalizarDestino(targetKey) !== normalizarDestino(NOMBRE_GRUPO) && normalizarDestino(targetKey) !== normalizarDestino(grupoId)) {
+            throw new Error('El destino WhatsApp solicitado no coincide con el grupo heredado configurado.');
+        }
+    }
     if (channel === 'facebook') {
         const gruposSeleccionados = obtenerGruposFacebookPublicacion(publicacionActual);
         grupoLocal = gruposSeleccionados.find(grupo =>
@@ -6689,7 +6764,13 @@ async function ejecutarComandoLaravel(client, grupoId, estado, comando) {
 
     const registro = obtenerRegistroEstado(estado, publicacionActual);
     if (channel === 'whatsapp') {
-        registro.whatsapp = false;
+        if (grupoWhatsAppLocal) {
+            if (!registro.whatsappGrupos || typeof registro.whatsappGrupos !== 'object') registro.whatsappGrupos = {};
+            registro.whatsappGrupos[obtenerClaveWhatsAppGrupo(grupoWhatsAppLocal)] = false;
+            registro.whatsapp = false;
+        } else {
+            registro.whatsapp = false;
+        }
         registro.enviada = false;
         guardarJson(ARCHIVO_ESTADO, estado);
         await procesarPublicaciones(client, grupoId, estado, { occurrenceId, channel, targetKey });
@@ -6704,7 +6785,7 @@ async function ejecutarComandoLaravel(client, grupoId, estado, comando) {
 
     const actualizado = obtenerRegistroEstado(estado, publicacionActual);
     const exitoso = channel === 'whatsapp'
-        ? actualizado.whatsapp === true
+        ? (grupoWhatsAppLocal ? whatsappGrupoFueEnviado(estado, publicacionActual, grupoWhatsAppLocal) : actualizado.whatsapp === true)
         : actualizado.facebookGrupos?.[obtenerClaveFacebookGrupo(grupoLocal)] === true;
     if (!exitoso) {
         throw new Error('WBot terminó el procesamiento sin confirmar el reintento de ' + channel + ' para ' + occurrenceId + '.');
@@ -6827,11 +6908,7 @@ async function procesarPublicaciones(
 
                 const whatsappPendiente =
                 requiereDestino(publicacion, 'whatsapp') &&
-                !destinoFueEnviado(
-                    estado,
-                    publicacion,
-                    'whatsapp'
-                );
+                !whatsappPublicacionFueEnviada(estado, publicacion);
 
                 const facebookPendiente =
                 requiereDestino(publicacion, 'facebook') &&
@@ -6887,11 +6964,7 @@ async function procesarPublicaciones(
                     const whatsappPendiente =
                     requiereDestino(publicacion, 'whatsapp') &&
                     (!forcedExecution || forcedExecution.channel === 'whatsapp') &&
-                    !destinoFueEnviado(
-                        estado,
-                        publicacion,
-                        'whatsapp'
-                    );
+                    !whatsappPublicacionFueEnviada(estado, publicacion);
 
                     const facebookPendiente =
                     requiereDestino(publicacion, 'facebook') &&
@@ -7010,115 +7083,51 @@ async function procesarPublicaciones(
                 // ------------------------------------------------
                 // WHATSAPP
                 // ------------------------------------------------
-
-                if (
-                    requiereDestino(publicacion, 'whatsapp') &&
-                    (!forcedExecution || forcedExecution.channel === 'whatsapp') &&
-                    !destinoFueEnviado(
-                        estado,
-                        publicacion,
-                        'whatsapp'
-                    )
-                ) {
-
-                    let executionIdWhatsApp = null;
-
-                    try {
-
-                        console.log(
-                            'Procesando destino: WHATSAPP'
-                        );
-
-                        const targetKeyWhatsApp = NOMBRE_GRUPO;
-                        const ejecucionWhatsApp = await iniciarEjecucionSeguro(
-                            publicacion,
-                            'whatsapp',
-                            targetKeyWhatsApp
-                        );
-
-                        if (ejecucionWhatsApp?.data?.status === 'succeeded') {
-                            marcarDestinoComoEnviado(
-                                estado,
-                                publicacion,
-                                'whatsapp'
-                            );
-
-                            console.log(
-                                'WHATSAPP: Laravel ya registra esta ejecución como exitosa; se omite el envío duplicado.'
-                            );
-
-                            continue;
+                if (requiereDestino(publicacion, 'whatsapp') && (!forcedExecution || forcedExecution.channel === 'whatsapp')) {
+                    const gruposSeleccionados = obtenerGruposWhatsAppPublicacion(publicacion);
+                    const tieneCatalogoWhatsApp = tieneCatalogoWhatsAppEnPayload(publicacion);
+                    const gruposObjetivo = gruposSeleccionados.length ? gruposSeleccionados : (!tieneCatalogoWhatsApp && grupoId ? [{ id: null, whatsapp_id: String(grupoId), name: NOMBRE_GRUPO, legacy: true }] : []);
+                    const gruposPendientes = gruposObjetivo.filter(grupo => {
+                        if (forcedExecution?.targetKey) {
+                            const target = normalizarDestino(forcedExecution.targetKey);
+                            if (target !== obtenerClaveWhatsAppGrupo(grupo) && target !== normalizarDestino(grupo.name)) return false;
                         }
-
-                        executionIdWhatsApp = ejecucionWhatsApp?.data?.id || null;
-
-                        const resultadoWhatsApp =
-                        await enviarImagenWhatsApp(
-                            client,
-                            grupoId,
-                            publicacion,
-                            rutaImagen
-                        );
-
-                        if (
-                            resultadoWhatsApp
-                        ) {
-
-                            marcarDestinoComoEnviado(
-                                estado,
-                                publicacion,
-                                'whatsapp'
-                            );
-
-                            console.log(
-                                `WHATSAPP: ID ${publicacion.id} ` +
-                                `registrada como enviada.`
-                            );
-
-                            await completarEjecucionSeguro(
-                                executionIdWhatsApp,
-                                null
-                            );
+                        return grupo.legacy ? !destinoFueEnviado(estado, publicacion, 'whatsapp') : !whatsappGrupoFueEnviado(estado, publicacion, grupo);
+                    });
+                    if (!gruposObjetivo.length) console.warn('[WhatsApp] No hay grupos seleccionados en Laravel y tampoco está disponible el grupo heredado.');
+                    if (gruposObjetivo.length && !gruposPendientes.length) console.log('[WhatsApp] Todos los grupos seleccionados ya recibieron la publicación.');
+                    for (const grupoWhatsApp of gruposPendientes) {
+                        let executionIdWhatsApp = null;
+                        const targetKeyWhatsApp = grupoWhatsApp.whatsapp_id || grupoWhatsApp.name || NOMBRE_GRUPO;
+                        try {
+                            console.log('Procesando destino: WHATSAPP → ' + (grupoWhatsApp.name || targetKeyWhatsApp));
+                            const ejecucionWhatsApp = await iniciarEjecucionSeguro(publicacion, 'whatsapp', targetKeyWhatsApp);
+                            if (ejecucionWhatsApp?.data?.status === 'succeeded') {
+                                if (grupoWhatsApp.legacy) marcarDestinoComoEnviado(estado, publicacion, 'whatsapp'); else marcarWhatsAppGrupoComoEnviado(estado, publicacion, grupoWhatsApp);
+                                console.log('[WhatsApp] Laravel ya registra como exitosa la ejecución para ' + grupoWhatsApp.name + '; se omite el envío duplicado.');
+                                continue;
+                            }
+                            executionIdWhatsApp = ejecucionWhatsApp?.data?.id || null;
+                            const grupoIdDestino = grupoWhatsApp.whatsapp_id || grupoId;
+                            if (!grupoIdDestino) throw new Error('No se encontró el ID de WhatsApp para el grupo ' + grupoWhatsApp.name + '.');
+                            const publicacionWhatsApp = { ...publicacion, whatsappGrupoActual: grupoWhatsApp.name || targetKeyWhatsApp };
+                            const resultadoWhatsApp = await enviarImagenWhatsApp(client, grupoIdDestino, publicacionWhatsApp, rutaImagen);
+                            if (resultadoWhatsApp) {
+                                if (grupoWhatsApp.legacy) marcarDestinoComoEnviado(estado, publicacion, 'whatsapp'); else marcarWhatsAppGrupoComoEnviado(estado, publicacion, grupoWhatsApp);
+                                console.log('[WhatsApp] Publicación ID ' + publicacion.id + ' enviada a ' + grupoWhatsApp.name + '.');
+                                await completarEjecucionSeguro(executionIdWhatsApp, null);
+                            }
+                        } catch (error) {
+                            await fallarEjecucionSeguro(executionIdWhatsApp, error);
+                            registrarPublicacionFallida(publicacion, 'whatsapp', error);
+                            console.error('[WhatsApp] Error enviando ID ' + publicacion.id + ' a ' + grupoWhatsApp.name + ': ' + error.message);
                         }
-
-                    } catch (error) {
-                        await fallarEjecucionSeguro(
-                            executionIdWhatsApp,
-                            error
-                        );
-                        registrarPublicacionFallida(
-                            publicacion,
-                            'whatsapp',
-                            error
-                        );
-
-                        console.error('');
-                        console.error(
-                            `ERROR WHATSAPP - ID ${publicacion.id}:`
-                        );
-
-                        console.error(
-                            error.message
-                        );
-
-                        /*
-                         * NO detenemos Facebook.
-                         * Se intentará nuevamente en el siguiente ciclo.
-                         */
                     }
-
                 } else if (requiereDestino(publicacion, 'whatsapp')) {
-
-                    console.log(
-                        'WHATSAPP: ya enviada. Se omite.'
-                    );
+                    console.log('[WhatsApp] Reintento solicitado para otro canal; se omite WhatsApp.');
                 } else {
-
-                    console.log(
-                        'WHATSAPP: no es un destino de esta publicación.'
-                    );
+                    console.log('[WhatsApp] No es un destino de esta publicación.');
                 }
-
                 // ------------------------------------------------
                 // FACEBOOK
                 // ------------------------------------------------
@@ -7907,6 +7916,9 @@ async function iniciar() {
     await buscarGrupo(
         client
     );
+
+    await sincronizarCatalogoGruposWhatsApp(client);
+    setInterval(() => { sincronizarCatalogoGruposWhatsApp(client); }, 30 * 60 * 1000);
 
     actualizarEstadoHeartbeat({
         whatsapp: 'connected',

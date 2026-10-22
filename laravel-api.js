@@ -52,6 +52,13 @@ async function request(path, options = {}) {
     return body;
 }
 
+async function sincronizarGruposWhatsApp(groups) {
+    return request('/api/bot/whatsapp/groups/sync', {
+        method: 'POST',
+        body: JSON.stringify({ groups }),
+    });
+}
+
 async function iniciarEjecucion(publicacion, channel, targetKey, facebookGroupId = null) {
     return request('/api/bot/executions/start', {
         method: 'POST',
@@ -107,6 +114,7 @@ async function fallarComando(commandId, error, retry = true) {
 }
 
 module.exports = {
+    sincronizarGruposWhatsApp,
     iniciarEjecucion,
     completarEjecucion,
     fallarEjecucion,
