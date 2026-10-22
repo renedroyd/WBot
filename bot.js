@@ -330,7 +330,7 @@ async function extraerSesionFacebookAntigua() {
     try {
 
         navegadorMigracion = await puppeteer.launch({
-            //executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+            executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
             headless: true,
             userDataDir: CARPETA_SESION_FACEBOOK,
             defaultViewport: { width: 1366, height: 900 },
@@ -7682,7 +7682,7 @@ async function iniciar() {
     if (!navegadorPrincipal) {
         navegadorPrincipal =
         await puppeteer.launch({
-            //executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+            executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
             headless: false,
             userDataDir: CARPETA_PERFIL_COMUN,
             defaultViewport: {
