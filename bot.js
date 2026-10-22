@@ -2249,10 +2249,10 @@ async function buscarGrupo(client) {
         }
     }
 
-    throw new Error(
-        `No se encontró el grupo "${NOMBRE_GRUPO}" ` +
-        `después de ${MAX_INTENTOS} intentos.`
+    console.warn(
+        `No se encontró el grupo heredado "${NOMBRE_GRUPO}" después de ${MAX_INTENTOS} intentos. WBot continuará usando los grupos seleccionados desde Laravel.`
     );
+    return null;
 }
 
 // ============================================================
