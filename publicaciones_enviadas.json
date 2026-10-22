@@ -5260,5 +5260,19 @@
     "facebookGrupos": {},
     "facebookAuditoriaV97": null,
     "enviada": true
+  },
+  "9_2026-10-22_10-38": {
+    "id": 9,
+    "ocurrencia_id": "9_2026-10-22_10-38",
+    "fecha": "2026-10-22",
+    "hora": "10:38",
+    "whatsapp": true,
+    "facebook": true,
+    "facebookOrigenUrl": "https://www.facebook.com/clasicodubai",
+    "facebookUrlPublicacion": null,
+    "facebookOrigenPublicado": false,
+    "facebookGrupos": {},
+    "facebookAuditoriaV97": null,
+    "enviada": true
   }
 }

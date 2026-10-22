@@ -1,5 +1,6 @@
 # Ficheros específicos
 .env
+publicaciones_enviadas.json
 
 # Por extensión
 *.log
