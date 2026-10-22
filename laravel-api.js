@@ -3,23 +3,38 @@
 const LARAVEL_API_URL = (process.env.LARAVEL_API_URL || '').replace(/\/+$/, '');
 const LARAVEL_API_TOKEN = process.env.LARAVEL_API_TOKEN || '';
 const BOT_NAME = process.env.BOT_NAME || 'WBot';
+const API_TIMEOUT_DEFAULT_MS = 15000;
+const API_TIMEOUT_CONFIGURED_MS = Number.parseInt(process.env.BOT_API_TIMEOUT_MS || '', 10);
+const API_TIMEOUT_MS = Number.isFinite(API_TIMEOUT_CONFIGURED_MS) && API_TIMEOUT_CONFIGURED_MS >= 1000
+    ? API_TIMEOUT_CONFIGURED_MS
+    : API_TIMEOUT_DEFAULT_MS;
 
 async function request(path, options = {}) {
     if (!LARAVEL_API_URL || !LARAVEL_API_TOKEN) {
         throw new Error('La configuración de Laravel API está incompleta.');
     }
 
-    const response = await fetch(LARAVEL_API_URL + path, {
-        ...options,
-        headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-            Authorization: 'Bearer ' + LARAVEL_API_TOKEN,
-            ...(options.headers || {}),
-        },
-    });
+    let response;
+    let text;
+    try {
+        response = await fetch(LARAVEL_API_URL + path, {
+            ...options,
+            signal: options.signal || AbortSignal.timeout(API_TIMEOUT_MS),
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                Authorization: 'Bearer ' + LARAVEL_API_TOKEN,
+                ...(options.headers || {}),
+            },
+        });
+        text = await response.text();
+    } catch (error) {
+        if (error && error.name === 'TimeoutError') {
+            throw new Error(`La solicitud a Laravel (${path}) superó el límite de ${API_TIMEOUT_MS} ms.`, { cause: error });
+        }
+        throw error;
+    }
 
-    const text = await response.text();
     let body = {};
 
     try {

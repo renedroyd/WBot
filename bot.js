@@ -125,8 +125,8 @@ String(process.env.FACEBOOK_ENABLED || 'false').toLowerCase() === 'true';
 const FACEBOOK_ORIGEN_URL =
 process.env.FACEBOOK_ORIGEN_URL || '';
 
-// Destinos de publicación de Facebook: esta lista local es la fuente de verdad
-// para publicación y reintentos hasta reactivar explícitamente la selección Laravel.
+// La selección de grupos de publicación procede de las asociaciones
+// de cada publicación devueltas por Laravel.
 const FACEBOOK_SYNC_INTERVAL_MS = Math.max(
     5 * 60 * 1000,
     parseInt(process.env.FACEBOOK_SYNC_INTERVAL_MS || String(30 * 60 * 1000), 10)
@@ -163,36 +163,6 @@ Math.max(
     )
 );
 
-// Grupos de destino definidos localmente. Por ahora se ignora el catálogo
-// y la selección de grupos que pueda enviar Laravel; cambiar esta lista
-// manualmente hasta que se reactive la integración con Laravel.
-const FACEBOOK_GRUPOS_PUBLICACION = [
-    {
-        id: 52,
-        facebook_id: '3496394560493538',
-        nombre: 'Revolico Guantanamo 2025',
-        url: 'https://www.facebook.com/groups/3496394560493538', /////PENDIENTES DE APROBACION
-    },
-    {
-        id: 53,
-        facebook_id: '2058351861183452',
-        nombre: 'REVOLICO GUANTANAMO Y SUS MUNICIPIOS',
-        url: 'https://www.facebook.com/groups/2058351861183452', //////EN ESTE GRUPO SI
-    },
-    {
-        id: 54,
-        facebook_id: '1005787863939670',
-        nombre: 'Revolico Los Coco Confluente',
-        url: 'https://www.facebook.com/groups/1005787863939670', ////////ESTE TAMBIEN
-    },
-    {
-        id: 55,
-        facebook_id: '4929809533739641',
-        nombre: 'Lo mejor de rebolico gtmo',
-        url: 'https://www.facebook.com/groups/4929809533739641',  ////PENDIENTES DE APROBACION
-    },
-];
-
 // MODO DE REFINAMIENTO DEL FLUJO FACEBOOK
 // ------------------------------------------------------------
 // El flujo se detiene intencionalmente después de seleccionar los grupos
@@ -210,6 +180,11 @@ const LARAVEL_API_URL = (
 
 const LARAVEL_API_TOKEN =
 process.env.LARAVEL_API_TOKEN || '';
+
+const API_TIMEOUT_CONFIGURED_MS = Number.parseInt(process.env.BOT_API_TIMEOUT_MS || '', 10);
+const BOT_API_TIMEOUT_MS = Number.isFinite(API_TIMEOUT_CONFIGURED_MS) && API_TIMEOUT_CONFIGURED_MS >= 1000
+    ? API_TIMEOUT_CONFIGURED_MS
+    : 15000;
 
 const INTERVALO_ACTUALIZACION_API = 60 * 1000;
 
@@ -354,7 +329,7 @@ async function extraerSesionFacebookAntigua() {
     try {
 
         navegadorMigracion = await puppeteer.launch({
-            executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+            //executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
             headless: true,
             userDataDir: CARPETA_SESION_FACEBOOK,
             defaultViewport: { width: 1366, height: 900 },
@@ -619,30 +594,37 @@ function liberarBloqueoWhatsApp() {
 // ============================================================
 
 function cargarJson(ruta, valorPorDefecto) {
-
-    try {
-
-        if (!fs.existsSync(ruta)) {
-            return valorPorDefecto;
-        }
-
-        const contenido =
-        fs.readFileSync(
-            ruta,
-            'utf8'
-        );
-
-        return JSON.parse(contenido);
-
-    } catch (error) {
-
-        console.error(
-            `ERROR leyendo ${ruta}:`,
-            error.message
-        );
-
+    if (!fs.existsSync(ruta)) {
         return valorPorDefecto;
     }
+
+    let contenido;
+    try {
+        contenido = fs.readFileSync(ruta, 'utf8');
+    } catch (error) {
+        throw new Error(
+            `No se pudo leer ${ruta}; se cancela el arranque para evitar sobrescribir el estado: ${error.message}`,
+            { cause: error }
+        );
+    }
+
+    let datos;
+    try {
+        datos = JSON.parse(contenido);
+    } catch (error) {
+        throw new Error(
+            `El archivo ${ruta} contiene JSON inválido. Se conserva sin modificar y se cancela el arranque para evitar perder el historial.`,
+            { cause: error }
+        );
+    }
+
+    if (!datos || typeof datos !== 'object' || Array.isArray(datos)) {
+        throw new Error(
+            `El archivo ${ruta} no contiene un objeto JSON de estado. Se conserva sin modificar y se cancela el arranque.`
+        );
+    }
+
+    return datos;
 }
 
 function guardarJson(ruta, datos) {
@@ -866,7 +848,7 @@ function marcarFacebookGrupoComoEnviado(
     registro.fecha = obtenerFechaActual();
     registro.facebookGrupos[obtenerClaveFacebookGrupo(grupo)] = true;
 
-    const grupos = FACEBOOK_GRUPOS_PUBLICACION;
+    const grupos = obtenerGruposFacebookPublicacion(publicacion);
 
     registro.facebook =
     grupos.length > 0 &&
@@ -1160,7 +1142,8 @@ function obtenerGruposFacebookPublicacion(publicacion) {
             };
         }
 
-        if (!grupo.nombre && !grupo.facebook_id && !grupo.url) continue;
+        // Los nombres de relleno no son destinos válidos, aunque incluyan un ID.
+        if (!grupo.nombre || /^grupo\s+facebook(?:\s+\d+)?$/i.test(grupo.nombre)) continue;
 
         // Si Facebook/Laravel conserva un nombre contaminado, nunca lo
         // llevamos al selector. El ID/URL tiene prioridad como identidad.
@@ -1178,6 +1161,36 @@ function obtenerGruposFacebookPublicacion(publicacion) {
     }
 
     return grupos;
+}
+
+function normalizarGruposFacebookPublicacion(grupos) {
+    if (!Array.isArray(grupos)) return [];
+    const salida = [];
+    const vistos = new Set();
+
+    for (const grupo of grupos) {
+        if (!grupo || typeof grupo !== 'object') continue;
+        const url = String(grupo.url || grupo.href || '').trim();
+        const facebookId = String(
+            grupo.facebook_id || grupo.facebookId || grupo.group_id || grupo.groupId ||
+            extraerIdGrupoFacebook(url) || ''
+        ).trim();
+        const nombre = limpiarNombreGrupoFacebook(grupo.nombre || grupo.name || '');
+        if (!facebookId && !url) continue;
+        if (!nombre || /^grupo\s+facebook(?:\s+\d+)?$/i.test(nombre)) continue;
+
+        const clave = normalizarDestino(facebookId || url);
+        if (!clave || vistos.has(clave)) continue;
+        vistos.add(clave);
+        salida.push({
+            id: grupo.id ?? null,
+            facebook_id: facebookId || extraerIdGrupoFacebook(url),
+            nombre,
+            url: url || (facebookId ? `https://www.facebook.com/groups/${facebookId}` : null),
+        });
+    }
+
+    return salida;
 }
 
 function obtenerClaveFacebookGrupo(grupo) {
@@ -1253,7 +1266,7 @@ function normalizarGrupoFacebookDescubierto(grupo) {
     ? String(grupo.facebook_id).trim()
     : null;
 
-    if (!nombre || (!url && !facebookId)) return null;
+    if (!nombre || /^grupo\s+facebook(?:\s+\d+)?$/i.test(nombre) || (!url && !facebookId)) return null;
 
     const idFinal = facebookId || extraerIdGrupoFacebook(url);
 
@@ -1375,11 +1388,9 @@ async function descubrirGruposFacebookParaSincronizacion(page, timeout = 30000) 
                         // nombre + "You last visited" + "See group" en el mismo nodo.
                         let nombre = normalizar(texto);
 
-                        if (!nombre && facebookId) {
-                            nombre = `Grupo Facebook ${facebookId}`;
-                        }
-
-                        if (!nombre) return;
+                        // No inventar nombres a partir del ID: el fallback genera
+                        // entradas falsas como "Grupo Facebook 123..." en Filament.
+                        if (!nombre || /^grupo\s+facebook(?:\s+\d+)?$/i.test(nombre)) return;
 
                         // Limpieza local adicional antes de enviar el registro al Node.
                         nombre = nombre
@@ -1408,6 +1419,21 @@ async function descubrirGruposFacebookParaSincronizacion(page, timeout = 30000) 
                         if (!/facebook\.com\/groups\//i.test(href)) continue;
 
                         let texto = normalizar(a.innerText || a.textContent || '');
+                        const nombrePorAtributo = normalizar(
+                            a.querySelector('[dir="auto"]')?.innerText ||
+                            a.getAttribute('title') ||
+                            a.getAttribute('aria-label') ||
+                            ''
+                        );
+                        // Algunas variantes de Facebook muestran solo "See group"
+                        // como texto visible y guardan el nombre real en title/aria-label.
+                        const primeraLinea = texto.split(/\n+/)[0] || '';
+                        if (
+                            !texto ||
+                            /^(?:see group|show group|mostra el grup|ver (?:el )?grupo|mostrar (?:el )?grupo)$/i.test(primeraLinea)
+                        ) {
+                            texto = nombrePorAtributo;
+                        }
                         // Si el enlace contiene varias líneas, normalmente la primera
                         // es el nombre del grupo.
                         if (texto.includes('\n')) texto = texto.split(/\n+/)[0];
@@ -1424,7 +1450,10 @@ async function descubrirGruposFacebookParaSincronizacion(page, timeout = 30000) 
                             el.getAttribute('data-url'),
                             el.getAttribute('data-testid')
                         ];
-                        const texto = normalizar(el.innerText || el.textContent || '');
+                        const texto = normalizar(
+                            el.innerText || el.textContent ||
+                            el.getAttribute('title') || el.getAttribute('aria-label') || ''
+                        );
                         for (const href of candidatos) {
                             if (/groups\//i.test(String(href || ''))) {
                                 agregar(href, texto.split(/\n+/)[0], '[role=link]');
@@ -1437,7 +1466,14 @@ async function descubrirGruposFacebookParaSincronizacion(page, timeout = 30000) 
                         if (!visible(el)) continue;
                         const href = el.getAttribute('data-href') || el.getAttribute('data-url') || '';
                         if (!/groups\//i.test(href)) continue;
-                        agregar(href, normalizar(el.innerText || el.textContent || '').split(/\n+/)[0], 'data-href');
+                        agregar(
+                            href,
+                            normalizar(
+                                el.innerText || el.textContent ||
+                                el.getAttribute('title') || el.getAttribute('aria-label') || ''
+                            ).split(/\n+/)[0],
+                            'data-href'
+                        );
                     }
 
                     // 4. Fallback: buscar URLs de grupos dentro del HTML/atributos.
@@ -1555,6 +1591,7 @@ async function sincronizarGruposFacebookConLaravel(grupos) {
 
     const response = await fetch(url, {
         method: 'POST',
+        signal: AbortSignal.timeout(BOT_API_TIMEOUT_MS),
         headers: {
             'Accept': 'application/json',
             'Content-Type': 'application/json',
@@ -1700,7 +1737,7 @@ async function obtenerPublicacionesDesdeLaravel() {
     const timeout =
     setTimeout(
         () => controller.abort(),
-               15000
+               BOT_API_TIMEOUT_MS
     );
 
     try {
@@ -4812,18 +4849,16 @@ async function hacerClickAtrasFacebook(page, timeout = 10000) {
 }
 
 async function configurarGruposCompartirFacebook(page, grupos, timeout = 30000) {
-    // Ignorar deliberadamente el argumento `grupos` que llega desde Laravel.
-    // La selección utiliza exclusivamente FACEBOOK_GRUPOS_PUBLICACION.
-    const gruposValidos = FACEBOOK_GRUPOS_PUBLICACION.map(grupo => ({ ...grupo }));
+    const gruposValidos = normalizarGruposFacebookPublicacion(grupos);
 
     if (gruposValidos.length === 0) {
         throw new Error(
-            'No hay grupos de Facebook definidos en FACEBOOK_GRUPOS_PUBLICACION.'
+            'La publicación no tiene grupos de Facebook seleccionados en Laravel.'
         );
     }
 
     console.log(
-        `[Facebook] Seleccionando ${gruposValidos.length} grupo(s) definidos en el código (Laravel ignorado para los grupos).`
+        `[Facebook] Seleccionando ${gruposValidos.length} grupo(s) seleccionados en Laravel.`
     );
 
     const shareGroupsAbierto = await hacerClickPorTexto(
@@ -5092,69 +5127,81 @@ async function cerrarModalInformacionFacebook(page, timeout = 10000) {
 }
 
 async function asegurarModoPaginaFacebook(page, timeout = 30000) {
-    // La sesión persistente de Facebook ya entra directamente actuando como
-    // Cervecería Clásico DUBAI. No debemos abrir ni seleccionar ningún
-    // selector de identidad, ya que eso puede provocar ciclos o diálogos.
-    console.log('[Facebook] Verificando sesión de la Página...');
+    // La sesión persistente define la identidad de Facebook. No hacemos clic
+    // en "Switch Now" ni en controles de identidad: podrían cambiar el perfil.
+    // El aviso puede permanecer en el DOM durante toda la sesión, por lo que
+    // esperarlo en un bucle solo bloquea el bot y repite el mismo mensaje.
+    if (!page || page.isClosed()) {
+        throw new Error('La pestaña de Facebook no está disponible.');
+    }
 
+    console.log('[Facebook] Verificando sesión de la Página...');
     await cerrarModalInformacionFacebook(page, Math.min(timeout, 10000));
 
-    const inicio = Date.now();
-
-    while (Date.now() - inicio < timeout) {
-        const estado = await page.evaluate(() => {
-            const texto = String(document.body?.innerText || '')
+    const estado = await page.evaluate(() => {
+        const normalizar = valor => String(valor || '')
             .normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '')
             .replace(/\s+/g, ' ')
             .trim()
             .toLowerCase();
 
-            const url = location.href || '';
+        const visible = el => {
+            if (!el) return false;
+            const r = el.getBoundingClientRect();
+            const s = window.getComputedStyle(el);
+            return r.width > 2 && r.height > 2 &&
+                s.display !== 'none' && s.visibility !== 'hidden' &&
+                s.opacity !== '0';
+        };
 
-            const modalSeguridad =
-            texto.includes('to keep facebook safe') ||
-            texto.includes('para mantener facebook seguro') ||
-            texto.includes('we\'re showing information about people and their profiles');
-
-            const avisoCambioIdentidad =
+        // Buscar primero dentro de diálogos visibles para evitar que una
+        // mención residual en cualquier parte del DOM active falsos positivos.
+        const dialogos = Array.from(document.querySelectorAll(
+            '[role="dialog"], [aria-modal="true"]'
+        )).filter(visible);
+        const textosDialogo = dialogos.map(el => normalizar(el.innerText || el.textContent || ''));
+        const fraseObjetivo = textosDialogo.some(texto =>
             texto.includes('switch into cerveceria clasico dubai') ||
-            texto.includes('cambiar a cerveceria clasico dubai');
+            texto.includes('cambiar a cerveceria clasico dubai')
+        );
 
-            return {
-                url,
-                modalSeguridad,
-                avisoCambioIdentidad
-            };
-        }).catch(() => ({
-            url: page.url(),
-                        modalSeguridad: false,
-                        avisoCambioIdentidad: false
-        }));
+        // Facebook puede mostrar el aviso fuera de un diálogo. En ese caso
+        // solo se considera detectado si la frase está realmente visible.
+        const textoVisible = normalizar(document.body?.innerText || '');
+        const avisoVisible = fraseObjetivo ||
+            textoVisible.includes('switch into cerveceria clasico dubai') ||
+            textoVisible.includes('cambiar a cerveceria clasico dubai');
 
-        if (estado.modalSeguridad) {
-            console.log('[Facebook] Modal informativo detectado; cerrándolo...');
-            await cerrarModalInformacionFacebook(page, Math.min(timeout, 10000));
-            await esperar(1000);
-            continue;
-        }
+        return {
+            url: location.href,
+            titulo: document.title || '',
+            avisoVisible,
+            enLogin: /\/(login|checkpoint)(\/|$)/i.test(location.pathname)
+        };
+    }).catch(() => ({
+        url: page.url(),
+        titulo: '',
+        avisoVisible: false,
+        enLogin: /login|checkpoint/i.test(page.url())
+    }));
 
-        // La identidad ya está establecida por la sesión persistente.
-        // No intentamos pulsar "Switch Now" ni seleccionar la Página.
-        if (!estado.avisoCambioIdentidad) {
-            console.log('[Facebook] Sesión de Facebook ya está en la Página. No se cambiará la identidad.');
-            return true;
-        }
-
-        // Si Facebook muestra un aviso residual, no hacemos clic sobre él.
-        // Esperamos a que la sesión termine de cargar por sí sola.
-        console.log('[Facebook] Aviso de cambio de identidad detectado; no se realizará ningún cambio automático.');
-        await esperar(1500);
+    if (estado.enLogin) {
+        throw new Error('Facebook requiere autenticación o revisión de seguridad; no se cambiará la identidad automáticamente.');
     }
 
-    // No bloqueamos el bot intentando cambiar de identidad. La sesión persistente
-    // es la fuente de verdad y Facebook puede tardar en terminar de montar la UI.
-    console.log('[Facebook] Continuando con la identidad de la sesión persistente.');
+    if (estado.avisoVisible) {
+        // Advertencia única: no repetirla ni esperar 30 s por un aviso que
+        // requiere una decisión explícita del usuario en la interfaz.
+        if (!asegurarModoPaginaFacebook._avisoIdentidadRegistrado) {
+            console.warn('[Facebook] Facebook muestra el aviso para cambiar a Cervecería Clásico Dubai. No se hará clic automáticamente; se continuará con la identidad de la sesión persistente.');
+            asegurarModoPaginaFacebook._avisoIdentidadRegistrado = true;
+        }
+    } else {
+        asegurarModoPaginaFacebook._avisoIdentidadRegistrado = false;
+        console.log('[Facebook] No se detectó un aviso de cambio de identidad. Se conserva la identidad de la sesión persistente.');
+    }
+
     return true;
 }
 
@@ -5550,9 +5597,10 @@ async function crearPublicacionOrigenFacebook(
 
     const texto = publicacion.texto || '';
 
-    // Los grupos de destino se toman de FACEBOOK_GRUPOS_PUBLICACION.
-    // `gruposDestino` puede venir vacío o desde Laravel, pero no decide
-    // a qué grupos de Facebook se intentará publicar.
+    const gruposSeleccionados = normalizarGruposFacebookPublicacion(gruposDestino);
+    if (gruposSeleccionados.length === 0) {
+        throw new Error('La publicación no tiene grupos de Facebook seleccionados en Laravel.');
+    }
 
     console.log('');
     console.log('='.repeat(70));
@@ -5561,7 +5609,7 @@ async function crearPublicacionOrigenFacebook(
     console.log(`ID     : ${publicacion.id}`);
     console.log(`Origen : ${FACEBOOK_ORIGEN_URL}`);
     console.log(`Imagen : ${rutaImagen}`);
-    console.log(`Grupos : ${FACEBOOK_GRUPOS_PUBLICACION.map(g => g.nombre).join(' | ')} (definidos en código)`);
+    console.log(`Grupos : ${gruposSeleccionados.map(g => g.nombre).join(' | ')} (seleccionados en Laravel)`);
     console.log(`Texto  : ${texto}`);
 
     await cerrarModalInformacionFacebook(facebookPage, Math.min(FACEBOOK_TIMEOUT_MS, 10000));
@@ -6622,15 +6670,17 @@ async function ejecutarComandoLaravel(client, grupoId, estado, comando) {
         }
     }
 
-    // Validar el destino ANTES de tocar el estado local. Facebook usa solo la lista del código.
+    // Validar el destino contra los grupos asociados a la publicación en Laravel
+    // ANTES de tocar el estado local.
     let grupoLocal = null;
     if (channel === 'facebook') {
-        grupoLocal = FACEBOOK_GRUPOS_PUBLICACION.find(grupo =>
+        const gruposSeleccionados = obtenerGruposFacebookPublicacion(publicacionActual);
+        grupoLocal = gruposSeleccionados.find(grupo =>
             String(grupo.facebook_id || '') === targetKey ||
             obtenerClaveFacebookGrupo(grupo) === targetKey
         );
         if (!grupoLocal) {
-            throw new Error(`El destino Facebook "${targetKey}" no existe en FACEBOOK_GRUPOS_PUBLICACION; no se modificó el estado ni se publicó.`);
+            throw new Error(`El destino Facebook "${targetKey}" no está seleccionado en la publicación de Laravel; no se modificó el estado ni se publicó.`);
         }
         if (!FACEBOOK_ENABLED || !facebookDisponible) {
             throw new Error('Facebook no está disponible para ejecutar el reintento.');
@@ -7075,12 +7125,8 @@ async function procesarPublicaciones(
 
                 if (requiereDestino(publicacion, 'facebook') && (!forcedExecution || forcedExecution.channel === 'facebook')) {
 
-                    // MODO TEMPORAL: usar exclusivamente los grupos locales
-                    // definidos en FACEBOOK_GRUPOS_PUBLICACION. No consultar
-                    // los grupos destino de esta publicación en Laravel.
-                    const gruposFacebook = FACEBOOK_GRUPOS_PUBLICACION.map(
-                        grupo => ({ ...grupo })
-                    );
+                    // Cada publicación solo se envía a los grupos seleccionados en Laravel.
+                    const gruposFacebook = obtenerGruposFacebookPublicacion(publicacion);
 
                     if (!FACEBOOK_ENABLED || !facebookDisponible) {
 
@@ -7092,7 +7138,7 @@ async function procesarPublicaciones(
                     } else if (gruposFacebook.length === 0) {
 
                         console.warn(
-                            `[Facebook] ID ${publicacion.id} no tiene grupos locales en FACEBOOK_GRUPOS_PUBLICACION.`
+                            `[Facebook] ID ${publicacion.id} no tiene grupos de Facebook seleccionados en Laravel.`
                         );
 
                     } else {
@@ -7627,7 +7673,7 @@ async function iniciar() {
     if (!navegadorPrincipal) {
         navegadorPrincipal =
         await puppeteer.launch({
-            executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+            //executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
             headless: false,
             userDataDir: CARPETA_PERFIL_COMUN,
             defaultViewport: {
@@ -8017,88 +8063,107 @@ async function iniciar() {
 // MANEJO DE ERRORES
 // ============================================================
 
-process.on(
-    'unhandledRejection',
-    error => {
+// Los errores no controlados se consideran fatales: el proceso no debe
+// continuar publicando si su estado interno puede ser inconsistente.
+process.on('unhandledRejection', error => {
+    const detalle = error?.stack || error?.message || String(error);
+    actualizarEstadoHeartbeat({
+        status: 'error',
+        message: 'Unhandled rejection; cerrando el bot',
+        lastError: error?.message || String(error),
+        lastErrorAt: new Date().toISOString(),
+    });
+    console.error('\nUNHANDLED REJECTION:');
+    console.error(detalle);
+    void cerrarBot(1, 'unhandledRejection');
+});
 
-        actualizarEstadoHeartbeat({
-            status: 'error',
-            message: 'Unhandled rejection',
-            lastError: error?.message || String(error),
-            lastErrorAt: new Date().toISOString(),
-        });
-
-        void enviarHeartbeat('error');
-
-        console.error('');
-        console.error(
-            'UNHANDLED REJECTION:'
-        );
-
-        console.error(error);
-    }
-);
-
-process.on(
-    'uncaughtException',
-    error => {
-
-        actualizarEstadoHeartbeat({
-            status: 'error',
-            message: 'Uncaught exception',
-            lastError: error?.message || String(error),
-            lastErrorAt: new Date().toISOString(),
-        });
-
-        void enviarHeartbeat('error');
-
-        console.error('');
-        console.error(
-            'UNCAUGHT EXCEPTION:'
-        );
-
-        console.error(
-            'Esto normalmente indica un error no controlado.'
-        );
-
-        console.error(error);
-    }
-);
+process.on('uncaughtException', error => {
+    const detalle = error?.stack || error?.message || String(error);
+    actualizarEstadoHeartbeat({
+        status: 'error',
+        message: 'Uncaught exception; cerrando el bot',
+        lastError: error?.message || String(error),
+        lastErrorAt: new Date().toISOString(),
+    });
+    console.error('\nUNCAUGHT EXCEPTION:');
+    console.error('El proceso terminará tras intentar liberar los recursos.');
+    console.error(detalle);
+    void cerrarBot(1, 'uncaughtException');
+});
 
 // ============================================================
 // CIERRE LIMPIO
 // ============================================================
 
-async function cerrarBot() {
+let cierreBotEnCurso = null;
+let codigoSalidaCierre = 0;
 
-    console.log('');
-    console.log(
-        'Cerrando bot...'
-    );
+async function cerrarBot(codigoSalida = 0, motivo = 'solicitud de cierre') {
+    if (cierreBotEnCurso) {
+        if (codigoSalida !== 0) codigoSalidaCierre = 1;
+        return cierreBotEnCurso;
+    }
 
-    actualizarEstadoHeartbeat({
-        status: 'stopping',
-        message: 'Cerrando bot',
-    });
+    codigoSalidaCierre = codigoSalida;
+    cierreBotEnCurso = (async () => {
+        console.log('');
+        console.log(`Cerrando bot (${motivo})...`);
 
-    await detenerHeartbeat();
-    await cerrarWhatsApp();
-    await cerrarFacebook();
-    await cerrarNavegadorPrincipal();
-    liberarBloqueoWhatsApp();
+        actualizarEstadoHeartbeat({
+            status: codigoSalidaCierre === 0 ? 'stopping' : 'error',
+            message: codigoSalidaCierre === 0 ? 'Cerrando bot' : 'Cierre por error fatal',
+        });
 
-    process.exit(0);
+        // Cada paso se intenta de forma independiente para que un fallo al
+        // cerrar un recurso no impida liberar el resto.
+        const pasosCierre = [
+            ['heartbeat', () => detenerHeartbeat()],
+            ['WhatsApp', () => cerrarWhatsApp()],
+            ['Facebook', () => cerrarFacebook()],
+            ['Chromium', () => cerrarNavegadorPrincipal()],
+        ];
+
+        for (const [nombre, cerrar] of pasosCierre) {
+            let temporizador = null;
+            try {
+                await Promise.race([
+                    cerrar(),
+                    new Promise((_, reject) => {
+                        temporizador = setTimeout(
+                            () => reject(new Error('Tiempo límite de 10 s al cerrar el recurso.')),
+                            10000
+                        );
+                    }),
+                ]);
+            } catch (error) {
+                console.error(`[Cierre] Error cerrando ${nombre}:`, error?.stack || error);
+                codigoSalidaCierre = 1;
+            } finally {
+                if (temporizador) clearTimeout(temporizador);
+            }
+        }
+
+        try {
+            liberarBloqueoWhatsApp();
+        } catch (error) {
+            console.error('[Cierre] Error liberando el bloqueo de WhatsApp:', error?.stack || error);
+            codigoSalidaCierre = 1;
+        }
+
+        process.exit(codigoSalidaCierre);
+    })();
+
+    return cierreBotEnCurso;
 }
 
-process.on(
-    'SIGINT',
-    cerrarBot
-);
+process.on('SIGINT', () => {
+    void cerrarBot(0, 'SIGINT');
+});
 
-process.on(
-    'SIGTERM',
-    cerrarBot
-);
+process.on('SIGTERM', () => {
+    void cerrarBot(0, 'SIGTERM');
+});
 
 // ============================================================
 // EJECUTAR

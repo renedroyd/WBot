@@ -28,3 +28,26 @@ jobs:
           node --check bot.js
           node --check heartbeat.js
           node --check laravel-api.js
+
+      - name: Run tests
+        run: npm test
+
+      - name: Report dependency vulnerabilities
+        continue-on-error: true
+        run: |
+          npm audit --json > npm-audit.json || true
+          node -e "
+            const fs = require('node:fs');
+            try {
+              const report = JSON.parse(fs.readFileSync('npm-audit.json', 'utf8'));
+              const items = Object.entries(report.vulnerabilities || {});
+              const totals = report.metadata?.vulnerabilities || {};
+              console.log('npm audit totals:', JSON.stringify(totals));
+              for (const [name, item] of items) {
+                const via = (item.via || []).map(v => typeof v === 'string' ? v : v.title).join('; ');
+                console.log('- ' + name + ': ' + item.severity + '; direct=' + item.isDirect + '; fix=' + JSON.stringify(item.fixAvailable) + '; advisories=' + via);
+              }
+            } catch (error) {
+              console.log('No se pudo interpretar el resultado de npm audit:', error.message);
+            }
+          "
