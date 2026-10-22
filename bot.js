@@ -246,6 +246,13 @@ const CARPETA_PERFIL_WHATSAPP = path.join(
     'whatsapp-bot'
 );
 
+// Los tokens de autenticación de WPPConnect se guardan separados
+// del perfil Chromium para facilitar la persistencia y el diagnóstico.
+const CARPETA_TOKENS_WPP = path.join(
+    CARPETA_SESION,
+    'tokens'
+);
+
 const ARCHIVO_BLOQUEO_WHATSAPP = path.join(
     CARPETA_SESION,
     'bot.lock'
@@ -549,6 +556,7 @@ function crearCarpetas() {
          CARPETA_IMAGENES_API,
          CARPETA_SESION,
          CARPETA_PERFIL_WHATSAPP,
+         CARPETA_TOKENS_WPP,
          CARPETA_SESION_FACEBOOK
     ]) {
 
@@ -7592,6 +7600,12 @@ async function iniciar() {
     console.log(
         `Sesión: ${CARPETA_SESION}`
     );
+    console.log(
+        `[WhatsApp] Perfil Chromium: ${CARPETA_PERFIL_WHATSAPP}`
+    );
+    console.log(
+        `[WhatsApp] Carpeta de tokens WPPConnect: ${CARPETA_TOKENS_WPP}`
+    );
 
     // --------------------------------------------------------
     // Si existe la sesión antigua de Facebook, la extraemos antes
@@ -7737,7 +7751,7 @@ async function iniciar() {
         tokenStore: 'file',
 
         folderNameToken:
-        CARPETA_SESION
+        CARPETA_TOKENS_WPP
     });
 
     whatsappClient = client;
