@@ -2218,8 +2218,9 @@ async function buscarGrupo(client) {
                 }
 
                 console.log(
-                    `Los grupos están disponibles, pero no aparece "${NOMBRE_GRUPO}".`
+                    `Los grupos están disponibles, pero no aparece "${NOMBRE_GRUPO}". Se usará la selección de grupos de Laravel.`
                 );
+                return null;
 
             } else {
 
