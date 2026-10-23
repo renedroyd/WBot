@@ -26,6 +26,7 @@ jobs:
       - name: Check JavaScript syntax
         run: |
           node --check bot.js
+          node --check facebook-pacing.js
           node --check heartbeat.js
           node --check laravel-api.js
 
