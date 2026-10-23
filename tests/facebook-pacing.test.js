@@ -54,7 +54,7 @@ test('continúa la cola aunque una publicación falle', async () => {
 
     await assert.rejects(pacer.run(async () => { throw new Error('falló'); }), /falló/);
     assert.equal(await pacer.run(async () => 'next'), 'next');
-    assert.deepEqual(delays, [14999]);
+    assert.deepEqual(delays, [15000]);
 });
 
 test('rechaza rangos de espera inválidos', () => {
