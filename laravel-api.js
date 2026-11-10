@@ -110,6 +110,7 @@ async function iniciarEjecucion(publicacion, channel, targetKey, facebookGroupId
             channel,
             target_key: targetKey,
             facebook_group_id: facebookGroupId,
+            instance_id: BOT_INSTANCE_ID,
         }),
     });
 }
@@ -117,7 +118,7 @@ async function iniciarEjecucion(publicacion, channel, targetKey, facebookGroupId
 async function completarEjecucion(executionId, externalId = null) {
     return request('/api/bot/executions/' + executionId + '/complete', {
         method: 'POST',
-        body: JSON.stringify({ external_id: externalId }),
+        body: JSON.stringify({ external_id: externalId, instance_id: BOT_INSTANCE_ID }),
     });
 }
 
@@ -125,6 +126,7 @@ async function fallarEjecucion(executionId, error) {
     return request('/api/bot/executions/' + executionId + '/fail', {
         method: 'POST',
         body: JSON.stringify({
+            instance_id: BOT_INSTANCE_ID,
             error: String(error || 'Error de ejecución').slice(0, 2000),
         }),
     });

@@ -132,6 +132,8 @@ const NOMBRE_GRUPO = 'Venta mayorista de cervezas.';
 //   - puede ejecutarse con FACEBOOK_HEADLESS=true
 //
 
+const FACEBOOK_SOCIAL_ACCOUNT_ID = process.env.FACEBOOK_SOCIAL_ACCOUNT_ID || '';
+
 const FACEBOOK_ENABLED =
 String(process.env.FACEBOOK_ENABLED || 'false').toLowerCase() === 'true';
 
@@ -193,6 +195,9 @@ const LARAVEL_API_URL = (
 
 const LARAVEL_API_TOKEN =
 process.env.LARAVEL_API_TOKEN || '';
+
+const BOT_NAME = process.env.BOT_NAME || 'WBot';
+const BOT_INSTANCE_ID = process.env.BOT_INSTANCE_ID || BOT_NAME;
 
 const API_TIMEOUT_CONFIGURED_MS = Number.parseInt(process.env.BOT_API_TIMEOUT_MS || '', 10);
 const BOT_API_TIMEOUT_MS = Number.isFinite(API_TIMEOUT_CONFIGURED_MS) && API_TIMEOUT_CONFIGURED_MS >= 1000
@@ -1678,6 +1683,7 @@ async function sincronizarGruposFacebookConLaravel(grupos) {
             grupos,
             origen: 'wbot',
             sincronizado_en: new Date().toISOString(),
+            ...(FACEBOOK_SOCIAL_ACCOUNT_ID ? { social_account_id: Number(FACEBOOK_SOCIAL_ACCOUNT_ID) } : {}),
         }),
     });
 
@@ -1789,7 +1795,7 @@ async function obtenerPublicacionesDesdeLaravel() {
     }
 
     const url =
-    `${LARAVEL_API_URL}/api/bot/publicaciones`;
+    `${LARAVEL_API_URL}/api/bot/publicaciones?instance_id=${encodeURIComponent(BOT_INSTANCE_ID)}`;
 
     console.log('');
     console.log(
