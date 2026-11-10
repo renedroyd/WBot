@@ -132,7 +132,7 @@ async function fallarEjecucion(executionId, error) {
 
 async function reclamarComando() {
     return request(
-        '/api/bot/commands/claim?bot_name=' + encodeURIComponent(BOT_NAME),
+        '/api/bot/commands/claim?bot_name=' + encodeURIComponent(BOT_NAME) + '&instance_id=' + encodeURIComponent(BOT_INSTANCE_ID),
         { method: 'GET' }
     );
 }
@@ -140,7 +140,7 @@ async function reclamarComando() {
 async function completarComando(commandId, result = {}) {
     return request('/api/bot/commands/' + commandId + '/complete', {
         method: 'POST',
-        body: JSON.stringify({ bot_name: BOT_NAME, result }),
+        body: JSON.stringify({ bot_name: BOT_NAME, instance_id: BOT_INSTANCE_ID, result }),
     });
 }
 
@@ -149,6 +149,7 @@ async function fallarComando(commandId, error, retry = true) {
         method: 'POST',
         body: JSON.stringify({
             bot_name: BOT_NAME,
+            instance_id: BOT_INSTANCE_ID,
             error: String(error || 'Error ejecutando comando').slice(0, 2000),
             retry,
         }),
