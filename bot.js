@@ -7832,6 +7832,16 @@ async function iniciar() {
 
     whatsappClient = client;
 
+    if (typeof client.getWid === 'function') {
+        try {
+            const wid = await client.getWid();
+            const phone = typeof wid === 'string' ? wid : (wid?._serialized || null);
+            await publicarEstadoConexionWhatsApp('connected', { phone });
+        } catch (error) {
+            console.warn('[WhatsApp] No se pudo obtener el identificador de la cuenta vinculada:', error.message);
+        }
+    }
+
     actualizarEstadoHeartbeat({
         whatsapp: 'connected',
         status: 'online',
