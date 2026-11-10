@@ -3,6 +3,8 @@
 const LARAVEL_API_URL = (process.env.LARAVEL_API_URL || '').replace(/\/+$/, '');
 const LARAVEL_API_TOKEN = process.env.LARAVEL_API_TOKEN || '';
 const BOT_NAME = process.env.BOT_NAME || 'WBot';
+const SOCIAL_ACCOUNT_ID = process.env.SOCIAL_ACCOUNT_ID || '';
+const BOT_INSTANCE_ID = process.env.BOT_INSTANCE_ID || BOT_NAME;
 const API_TIMEOUT_DEFAULT_MS = 15000;
 const API_TIMEOUT_CONFIGURED_MS = Number.parseInt(process.env.BOT_API_TIMEOUT_MS || '', 10);
 const API_TIMEOUT_MS = Number.isFinite(API_TIMEOUT_CONFIGURED_MS) && API_TIMEOUT_CONFIGURED_MS >= 1000
@@ -55,7 +57,28 @@ async function request(path, options = {}) {
 async function sincronizarGruposWhatsApp(groups) {
     return request('/api/bot/whatsapp/groups/sync', {
         method: 'POST',
-        body: JSON.stringify({ groups }),
+        body: JSON.stringify({
+            groups,
+            ...(SOCIAL_ACCOUNT_ID ? { social_account_id: Number(SOCIAL_ACCOUNT_ID) } : {}),
+        }),
+    });
+}
+
+async function publicarEstadoConexionWhatsApp(status, extra = {}) {
+    if (!SOCIAL_ACCOUNT_ID) {
+        return { skipped: true, reason: 'SOCIAL_ACCOUNT_ID no configurado' };
+    }
+
+    return request('/api/bot/whatsapp/connection/state', {
+        method: 'POST',
+        body: JSON.stringify({
+            social_account_id: Number(SOCIAL_ACCOUNT_ID),
+            agent_instance_id: BOT_INSTANCE_ID,
+            status,
+            ...(extra.qr ? { qr: extra.qr } : {}),
+            ...(extra.phone ? { phone: extra.phone } : {}),
+            ...(extra.error ? { error: String(extra.error).slice(0, 500) } : {}),
+        }),
     });
 }
 
@@ -115,6 +138,7 @@ async function fallarComando(commandId, error, retry = true) {
 
 module.exports = {
     sincronizarGruposWhatsApp,
+    publicarEstadoConexionWhatsApp,
     iniciarEjecucion,
     completarEjecucion,
     fallarEjecucion,

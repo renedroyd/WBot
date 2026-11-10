@@ -27,6 +27,7 @@ const {
 
 const {
     sincronizarGruposWhatsApp,
+    publicarEstadoConexionWhatsApp,
     iniciarEjecucion,
     completarEjecucion,
     fallarEjecucion,
@@ -7739,8 +7740,7 @@ async function iniciar() {
         page: whatsappPage,
 
         catchQR: (
-            base64Qr,
-            asciiQR
+            base64Qr
         ) => {
 
             console.log('');
@@ -7757,11 +7757,11 @@ async function iniciar() {
                 '========================================'
             );
 
-            console.log(
-                asciiQR
-            );
-
-            console.log('');
+            // El QR es una credencial temporal: nunca imprimirlo en consola ni logs.
+            if (base64Qr) {
+                publicarEstadoConexionWhatsApp('qr', { qr: base64Qr })
+                    .catch(error => console.warn('[WhatsApp] No se pudo enviar el QR temporal a SocialPublicator:', error.message));
+            }
         },
 
         statusFind: (
@@ -7778,12 +7778,15 @@ async function iniciar() {
             const estadoWpp = String(statusSession || '').toLowerCase();
 
             if (
-                ['islogged', 'inchat', 'qrreadsuccess'].includes(estadoWpp)
+                ['islogged', 'inchat'].includes(estadoWpp)
             ) {
                 actualizarEstadoHeartbeat({
                     whatsapp: 'connected',
                     status: 'online',
                     message: 'WhatsApp conectado',
+                });
+                publicarEstadoConexionWhatsApp('connected').catch(error => {
+                    console.warn('[WhatsApp] No se pudo informar la conexión a SocialPublicator:', error.message);
                 });
             } else if (
                 [
@@ -7803,6 +7806,8 @@ async function iniciar() {
                     lastError: 'WhatsApp desconectado: ' + statusSession,
                     lastErrorAt: new Date().toISOString(),
                 });
+                publicarEstadoConexionWhatsApp('disconnected', { error: statusSession })
+                    .catch(error => console.warn('[WhatsApp] No se pudo informar la desconexión a SocialPublicator:', error.message));
             }
         },
 
@@ -7820,6 +7825,16 @@ async function iniciar() {
     });
 
     whatsappClient = client;
+
+    if (typeof client.getWid === 'function') {
+        try {
+            const wid = await client.getWid();
+            const phone = typeof wid === 'string' ? wid : (wid?._serialized || null);
+            await publicarEstadoConexionWhatsApp('connected', { phone });
+        } catch (error) {
+            console.warn('[WhatsApp] No se pudo obtener el identificador de la cuenta vinculada:', error.message);
+        }
+    }
 
     actualizarEstadoHeartbeat({
         whatsapp: 'connected',
