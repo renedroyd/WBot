@@ -1683,6 +1683,7 @@ async function sincronizarGruposFacebookConLaravel(grupos) {
             grupos,
             origen: 'wbot',
             sincronizado_en: new Date().toISOString(),
+            agent_instance_id: BOT_INSTANCE_ID,
             ...(FACEBOOK_SOCIAL_ACCOUNT_ID ? { social_account_id: Number(FACEBOOK_SOCIAL_ACCOUNT_ID) } : {}),
         }),
     });
