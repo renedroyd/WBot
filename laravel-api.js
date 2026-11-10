@@ -4,6 +4,7 @@ const LARAVEL_API_URL = (process.env.LARAVEL_API_URL || '').replace(/\/+$/, '');
 const LARAVEL_API_TOKEN = process.env.LARAVEL_API_TOKEN || '';
 const BOT_NAME = process.env.BOT_NAME || 'WBot';
 const SOCIAL_ACCOUNT_ID = process.env.SOCIAL_ACCOUNT_ID || '';
+const FACEBOOK_SOCIAL_ACCOUNT_ID = process.env.FACEBOOK_SOCIAL_ACCOUNT_ID || '';
 const BOT_INSTANCE_ID = process.env.BOT_INSTANCE_ID || BOT_NAME;
 const API_TIMEOUT_DEFAULT_MS = 15000;
 const API_TIMEOUT_CONFIGURED_MS = Number.parseInt(process.env.BOT_API_TIMEOUT_MS || '', 10);
@@ -60,6 +61,22 @@ async function sincronizarGruposWhatsApp(groups) {
         body: JSON.stringify({
             groups,
             ...(SOCIAL_ACCOUNT_ID ? { social_account_id: Number(SOCIAL_ACCOUNT_ID) } : {}),
+        }),
+    });
+}
+
+async function publicarEstadoConexionFacebook(status, extra = {}) {
+    if (!FACEBOOK_SOCIAL_ACCOUNT_ID) {
+        return { skipped: true, reason: 'FACEBOOK_SOCIAL_ACCOUNT_ID no configurado' };
+    }
+
+    return request('/api/bot/facebook/connection/state', {
+        method: 'POST',
+        body: JSON.stringify({
+            social_account_id: Number(FACEBOOK_SOCIAL_ACCOUNT_ID),
+            agent_instance_id: BOT_INSTANCE_ID,
+            status,
+            ...(extra.error ? { error: String(extra.error).slice(0, 500) } : {}),
         }),
     });
 }
@@ -139,6 +156,7 @@ async function fallarComando(commandId, error, retry = true) {
 module.exports = {
     sincronizarGruposWhatsApp,
     publicarEstadoConexionWhatsApp,
+    publicarEstadoConexionFacebook,
     iniciarEjecucion,
     completarEjecucion,
     fallarEjecucion,
