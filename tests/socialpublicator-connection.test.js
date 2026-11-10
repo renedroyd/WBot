@@ -36,6 +36,7 @@ test('WhatsApp QR state is forwarded to SocialPublicator without storing local s
         const body = JSON.parse(captured.options.body);
         assert.equal(body.social_account_id, 42);
         assert.equal(body.agent_instance_id, 'wbot-test-01');
+        assert.equal(body.agent_instance_id, 'wbot-test-01');
         assert.equal(body.status, 'qr');
         assert.equal(body.session_name, 'whatsapp-bot');
         assert.equal(body.qr, 'data:image/png;base64,temporary');
