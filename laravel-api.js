@@ -6,6 +6,7 @@ const BOT_NAME = process.env.BOT_NAME || 'WBot';
 const SOCIAL_ACCOUNT_ID = process.env.SOCIAL_ACCOUNT_ID || '';
 const FACEBOOK_SOCIAL_ACCOUNT_ID = process.env.FACEBOOK_SOCIAL_ACCOUNT_ID || '';
 const BOT_INSTANCE_ID = process.env.BOT_INSTANCE_ID || BOT_NAME;
+const WHATSAPP_SESSION_NAME = process.env.WHATSAPP_SESSION_NAME || 'whatsapp-bot';
 const API_TIMEOUT_DEFAULT_MS = 15000;
 const API_TIMEOUT_CONFIGURED_MS = Number.parseInt(process.env.BOT_API_TIMEOUT_MS || '', 10);
 const API_TIMEOUT_MS = Number.isFinite(API_TIMEOUT_CONFIGURED_MS) && API_TIMEOUT_CONFIGURED_MS >= 1000
@@ -92,6 +93,7 @@ async function publicarEstadoConexionWhatsApp(status, extra = {}) {
             social_account_id: Number(SOCIAL_ACCOUNT_ID),
             agent_instance_id: BOT_INSTANCE_ID,
             status,
+            session_name: WHATSAPP_SESSION_NAME,
             ...(extra.qr ? { qr: extra.qr } : {}),
             ...(extra.phone ? { phone: extra.phone } : {}),
             ...(extra.error ? { error: String(extra.error).slice(0, 500) } : {}),
