@@ -224,36 +224,38 @@ const CARPETA_IMAGENES_API = path.join(
     'imagenes_api'
 );
 
-const CARPETA_SESION = path.join(
+const WHATSAPP_SESSION_NAME = process.env.WHATSAPP_SESSION_NAME || 'whatsapp-bot';
+
+const CARPETA_SESION = process.env.WHATSAPP_SESSION_DIR || path.join(
     __dirname,
     'whatsapp_session'
 );
 
-const CARPETA_PERFIL_WHATSAPP = path.join(
+const CARPETA_PERFIL_WHATSAPP = process.env.WHATSAPP_PROFILE_DIR || path.join(
     CARPETA_SESION,
-    'whatsapp-bot'
+    WHATSAPP_SESSION_NAME
 );
 
 // Los tokens de autenticación de WPPConnect se guardan separados
 // del perfil Chromium para facilitar la persistencia y el diagnóstico.
-const CARPETA_TOKENS_WPP = path.join(
+const CARPETA_TOKENS_WPP = process.env.WHATSAPP_TOKEN_DIR || path.join(
     CARPETA_SESION,
     'tokens'
 );
 
-const ARCHIVO_BLOQUEO_WHATSAPP = path.join(
+const ARCHIVO_BLOQUEO_WHATSAPP = process.env.WHATSAPP_LOCK_FILE || path.join(
     CARPETA_SESION,
-    'bot.lock'
+    WHATSAPP_SESSION_NAME === 'whatsapp-bot' ? 'bot.lock' : `${WHATSAPP_SESSION_NAME}.lock`
 );
 
-const CARPETA_SESION_FACEBOOK = path.join(
+const CARPETA_SESION_FACEBOOK = process.env.FACEBOOK_SESSION_DIR || path.join(
     __dirname,
     'facebook_session'
 );
 
 // Un único perfil Chromium para WhatsApp + Facebook.
 // Se reutiliza el perfil persistente actual de WhatsApp para no perder su sesión.
-const CARPETA_PERFIL_COMUN = CARPETA_PERFIL_WHATSAPP;
+const CARPETA_PERFIL_COMUN = process.env.BROWSER_PROFILE_DIR || CARPETA_PERFIL_WHATSAPP;
 
 // Migración segura de la sesión Facebook antigua al perfil Chromium compartido.
 const ARCHIVO_MIGRACION_FACEBOOK = path.join(
@@ -261,7 +263,7 @@ const ARCHIVO_MIGRACION_FACEBOOK = path.join(
     'migracion_compartida.json'
 );
 
-const CARPETA_BACKUPS_PERFIL = path.join(
+const CARPETA_BACKUPS_PERFIL = process.env.BROWSER_PROFILE_BACKUP_DIR || path.join(
     __dirname,
     'backups_perfiles'
 );
@@ -545,7 +547,9 @@ function crearCarpetas() {
          CARPETA_SESION,
          CARPETA_PERFIL_WHATSAPP,
          CARPETA_TOKENS_WPP,
-         CARPETA_SESION_FACEBOOK
+         CARPETA_SESION_FACEBOOK,
+         path.dirname(ARCHIVO_BLOQUEO_WHATSAPP),
+         CARPETA_BACKUPS_PERFIL
     ]) {
 
         if (!fs.existsSync(carpeta)) {
@@ -7739,7 +7743,7 @@ async function iniciar() {
     const client =
     await wppconnect.create({
 
-        session: 'whatsapp-bot',
+        session: WHATSAPP_SESSION_NAME,
 
         page: whatsappPage,
 
