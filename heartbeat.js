@@ -6,6 +6,7 @@ const LARAVEL_API_URL = (process.env.LARAVEL_API_URL || '').replace(/\/+$/, '');
 const LARAVEL_API_TOKEN = process.env.LARAVEL_API_TOKEN;
 
 const BOT_NAME = process.env.BOT_NAME || 'WBot';
+const BOT_INSTANCE_ID = process.env.BOT_INSTANCE_ID || BOT_NAME;
 const BOT_PLATFORM = process.env.BOT_PLATFORM || 'whatsapp';
 const BOT_VERSION = process.env.BOT_VERSION || '1.0.0';
 
@@ -187,6 +188,7 @@ async function enviarHeartbeat(status = estadoHeartbeat.status, extra = {}) {
 
     const payload = {
         name: BOT_NAME,
+        instance_id: BOT_INSTANCE_ID,
         platform: BOT_PLATFORM,
         status,
         version: BOT_VERSION,
