@@ -5,6 +5,16 @@ require('dotenv').config();
 const wppconnect = require('@wppconnect-team/wppconnect');
 const puppeteer = require('puppeteer');
 
+const { createFacebookPacer } = require('./facebook-pacing');
+
+const facebookPacer = createFacebookPacer({
+    minDelayMs: Number.parseInt(process.env.FACEBOOK_POST_DELAY_MIN_MS || '10000', 10),
+    maxDelayMs: Number.parseInt(process.env.FACEBOOK_POST_DELAY_MAX_MS || '15000', 10),
+    onWait: delayMs => console.log(
+        `[Facebook][Pausa] Esperando ${(delayMs / 1000).toFixed(1)} s antes de la siguiente publicación.`
+    ),
+});
+
 const {
     enviarHeartbeat,
     iniciarHeartbeat,
@@ -7191,7 +7201,7 @@ async function procesarPublicaciones(
                                     }
                                     executionIdFacebook = ejecucionFacebook?.data?.id || null;
                                     // La función solo retorna cuando confirma que Facebook aceptó la publicación.
-                                    await publicarDirectamenteEnMuroGrupoFacebook(publicacion, rutaImagen, grupoFacebook, pageTrabajo);
+                                    await facebookPacer.run(() => publicarDirectamenteEnMuroGrupoFacebook(publicacion, rutaImagen, grupoFacebook, pageTrabajo));
                                     marcarFacebookGrupoComoEnviado(estado, publicacion, grupoFacebook);
                                     await completarEjecucionSeguro(executionIdFacebook, null);
                                     console.log(`[Facebook][Muro] ✓ Publicación confirmada: ${grupoFacebook.nombre}`);
@@ -7304,12 +7314,12 @@ async function procesarPublicaciones(
                                     `[Facebook] Creando publicación origen y compartiendo directamente en ${gruposPendientes.length} grupo(s).`
                                 );
 
-                                const resultadoOrigen = await obtenerOCrearPublicacionOrigenFacebook(
+                                const resultadoOrigen = await facebookPacer.run(() => obtenerOCrearPublicacionOrigenFacebook(
                                     publicacion,
                                     rutaImagen,
                                     estado,
                                     gruposPendientes
-                                );
+                                ));
 
                                 // PUNTO DE CONTROL:
                                 // la publicación todavía NO existe en Facebook.
@@ -7423,11 +7433,11 @@ async function procesarPublicaciones(
                                 executionIdFacebook = ejecucionFacebook?.data?.id || null;
 
                                 const resultadoFacebook =
-                                await publicarEnFacebookConReintentos(
+                                await facebookPacer.run(() => publicarEnFacebookConReintentos(
                                     publicacion,
                                     urlOrigenFacebook,
                                     grupoFacebook
-                                );
+                                ));
 
                                 if (resultadoFacebook) {
                                     marcarFacebookGrupoComoEnviado(
