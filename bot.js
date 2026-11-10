@@ -28,6 +28,7 @@ const {
 const {
     sincronizarGruposWhatsApp,
     publicarEstadoConexionWhatsApp,
+    publicarEstadoConexionFacebook,
     iniciarEjecucion,
     completarEjecucion,
     fallarEjecucion,
@@ -3588,6 +3589,9 @@ async function iniciarFacebook() {
 
     console.log('[Facebook] Sesión disponible y actuando como la Página.');
     facebookDisponible = true;
+    publicarEstadoConexionFacebook('connected').catch(error => {
+        console.warn('[Facebook] No se pudo informar el estado de sesión a SocialPublicator:', error.message);
+    });
 
     if (!facebookSyncPage || facebookSyncPage.isClosed()) {
         facebookSyncPage = await facebookBrowser.newPage();
@@ -7879,6 +7883,7 @@ async function iniciar() {
     ) {
 
         try {
+            await publicarEstadoConexionFacebook('pending');
             await iniciarFacebook();
 
             actualizarEstadoHeartbeat({
@@ -7902,6 +7907,8 @@ async function iniciar() {
             }
         } catch (error) {
             facebookDisponible = false;
+            publicarEstadoConexionFacebook('error', { error: 'No se pudo iniciar la sesión persistente de Facebook.' })
+                .catch(reportError => console.warn('[Facebook] No se pudo informar el error a SocialPublicator:', reportError.message));
 
             console.error('');
             console.error(
