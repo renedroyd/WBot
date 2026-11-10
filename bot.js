@@ -7740,8 +7740,7 @@ async function iniciar() {
         page: whatsappPage,
 
         catchQR: (
-            base64Qr,
-            asciiQR
+            base64Qr
         ) => {
 
             console.log('');
@@ -7758,12 +7757,7 @@ async function iniciar() {
                 '========================================'
             );
 
-            console.log(
-                asciiQR
-            );
-
-            console.log('');
-
+            // El QR es una credencial temporal: nunca imprimirlo en consola ni logs.
             if (base64Qr) {
                 publicarEstadoConexionWhatsApp('qr', { qr: base64Qr })
                     .catch(error => console.warn('[WhatsApp] No se pudo enviar el QR temporal a SocialPublicator:', error.message));
@@ -7784,7 +7778,7 @@ async function iniciar() {
             const estadoWpp = String(statusSession || '').toLowerCase();
 
             if (
-                ['islogged', 'inchat', 'qrreadsuccess'].includes(estadoWpp)
+                ['islogged', 'inchat'].includes(estadoWpp)
             ) {
                 actualizarEstadoHeartbeat({
                     whatsapp: 'connected',
