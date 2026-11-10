@@ -27,6 +27,7 @@ const {
 
 const {
     sincronizarGruposWhatsApp,
+    publicarEstadoConexionWhatsApp,
     iniciarEjecucion,
     completarEjecucion,
     fallarEjecucion,
@@ -7762,6 +7763,11 @@ async function iniciar() {
             );
 
             console.log('');
+
+            if (base64Qr) {
+                publicarEstadoConexionWhatsApp('qr', { qr: base64Qr })
+                    .catch(error => console.warn('[WhatsApp] No se pudo enviar el QR temporal a SocialPublicator:', error.message));
+            }
         },
 
         statusFind: (
@@ -7785,6 +7791,9 @@ async function iniciar() {
                     status: 'online',
                     message: 'WhatsApp conectado',
                 });
+                publicarEstadoConexionWhatsApp('connected').catch(error => {
+                    console.warn('[WhatsApp] No se pudo informar la conexión a SocialPublicator:', error.message);
+                });
             } else if (
                 [
                     'desconnectedmobile',
@@ -7803,6 +7812,8 @@ async function iniciar() {
                     lastError: 'WhatsApp desconectado: ' + statusSession,
                     lastErrorAt: new Date().toISOString(),
                 });
+                publicarEstadoConexionWhatsApp('disconnected', { error: statusSession })
+                    .catch(error => console.warn('[WhatsApp] No se pudo informar la desconexión a SocialPublicator:', error.message));
             }
         },
 
