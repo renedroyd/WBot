@@ -64,12 +64,14 @@ test('WhatsApp group sync includes the configured social account id', async () =
         await api.sincronizarGruposWhatsApp([{
             whatsapp_id: '120363000000001@g.us',
             name: 'Grupo de prueba',
+            is_admin: true,
         }]);
 
         const body = JSON.parse(captured.options.body);
         assert.equal(body.social_account_id, 42);
         assert.equal(body.agent_instance_id, 'wbot-test-01');
         assert.equal(body.groups.length, 1);
+        assert.equal(body.groups[0].is_admin, true);
     } finally {
         global.fetch = originalFetch;
     }

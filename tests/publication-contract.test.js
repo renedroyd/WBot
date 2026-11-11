@@ -13,8 +13,14 @@ test('normalizes the versioned English publication contract for the existing WBo
         text: 'Oferta de prueba',
         image: 'https://cdn.example.test/item.jpg',
         destination: 'both',
-        whatsapp_groups: [{ id: 4, whatsapp_id: '120@g.us', name: 'Grupo WA' }],
-        facebook_groups: [{ id: 8, facebook_id: '9988', name: 'Grupo FB', url: 'https://facebook.com/groups/9988' }],
+        whatsapp_groups: [
+            { id: 4, whatsapp_id: '120@g.us', name: 'Grupo WA 1' },
+            { id: 5, whatsapp_id: '121@g.us', name: 'Grupo WA 2' },
+        ],
+        facebook_groups: [
+            { id: 8, facebook_id: '9988', name: 'Grupo FB 1', url: 'https://facebook.com/groups/9988' },
+            { id: 9, facebook_id: '9989', name: 'Grupo FB 2', url: 'https://facebook.com/groups/9989' },
+        ],
     });
 
     assert.equal(normalized.ocurrencia_id, '71_2026-11-11_10-30');
@@ -23,8 +29,10 @@ test('normalizes the versioned English publication contract for the existing WBo
     assert.equal(normalized.texto, 'Oferta de prueba');
     assert.equal(normalized.imagen, 'https://cdn.example.test/item.jpg');
     assert.equal(normalized.destino, 'both');
-    assert.equal(normalized.whatsapp_groups[0].whatsapp_id, '120@g.us');
-    assert.equal(normalized.facebook_groups[0].facebook_id, '9988');
+    assert.equal(normalized.whatsapp_groups.length, 2);
+    assert.equal(normalized.whatsapp_groups[1].whatsapp_id, '121@g.us');
+    assert.equal(normalized.facebook_groups.length, 2);
+    assert.equal(normalized.facebook_groups[1].facebook_id, '9989');
 });
 
 test('preserves compatibility with the legacy Spanish publication contract', () => {
