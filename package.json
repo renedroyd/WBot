@@ -5,7 +5,8 @@
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js",
-    "test": "node --test"
+    "test": "node --test",
+    "start:instances": "node instance-manager.js"
   },
   "dependencies": {
     "@wppconnect-team/wppconnect": "^2.3.4",
