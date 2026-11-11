@@ -19,16 +19,20 @@ function normalizeWid(value) {
 
 /**
  * Returns true/false only when both the current account identity and the
- * group's participant metadata are available. Null means not verifiable.
+ * group's participant metadata are available. Accepts WID and LID identities.
+ * Null means the result cannot be verified.
  */
-function getCurrentUserGroupAdminStatus(groupMetadata, currentUserId) {
-    const current = normalizeWid(currentUserId);
-    if (!current || !groupMetadata || !Array.isArray(groupMetadata.participants)) {
+function getCurrentUserGroupAdminStatus(groupMetadata, currentUserIds) {
+    const identities = (Array.isArray(currentUserIds) ? currentUserIds : [currentUserIds])
+        .map(normalizeWid)
+        .filter(Boolean);
+
+    if (!identities.length || !groupMetadata || !Array.isArray(groupMetadata.participants)) {
         return null;
     }
 
     const participant = groupMetadata.participants.find(item =>
-        normalizeWid(item?.id) === current
+        identities.includes(normalizeWid(item?.id))
     );
 
     if (!participant) return false;
