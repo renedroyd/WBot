@@ -112,6 +112,33 @@ test('startup preflight refuses a SocialPublicator-revoked session', async () =>
     }
 });
 
+
+test('Meta OAuth revocation does not block the separate Facebook browser session', async () => {
+    const originalFetch = global.fetch;
+    const payload = healthResponse();
+    payload.data.accounts[1].connections = [{
+        type: 'meta_oauth',
+        status: 'revoked',
+        revoked_at: '2026-11-11T10:00:00Z',
+        last_error_code: 'workspace_admin_revoked',
+    }];
+
+    global.fetch = async () => ({
+        ok: true,
+        async text() {
+            return JSON.stringify(payload);
+        },
+    });
+
+    try {
+        const result = await api.consultarEstadoAgente();
+        assert.equal(result.skipped, false);
+        assert.equal(result.accounts.length, 2);
+    } finally {
+        global.fetch = originalFetch;
+    }
+});
+
 test('startup preflight refuses to open a session already owned by another instance', async () => {
     const originalFetch = global.fetch;
     const payload = healthResponse();
