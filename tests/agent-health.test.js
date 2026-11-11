@@ -93,6 +93,7 @@ test('startup preflight refuses a SocialPublicator-revoked session', async () =>
     const originalFetch = global.fetch;
     const payload = healthResponse();
     payload.data.accounts[0].connections[0].revoked_at = '2026-11-11T10:00:00Z';
+    payload.data.accounts[0].connections[0].last_error_code = 'workspace_admin_revoked';
 
     global.fetch = async () => ({
         ok: true,
