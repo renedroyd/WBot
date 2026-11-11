@@ -1,5 +1,7 @@
 // V7 - selector estricto del botón final; conserva cola concurrente y WhatsApp secuencial\n'use strict';
 
+const { getCurrentUserGroupAdminStatus } = require('./whatsapp-group-admin');
+
 const { assertExecutionClaim } = require('./execution-claim');
 
 const { normalizePublication } = require('./publication-contract');
@@ -1277,14 +1279,34 @@ function marcarWhatsAppGrupoComoEnviado(estado, publicacion, grupo) {
 async function sincronizarCatalogoGruposWhatsApp(client) {
     try {
         const chats = await client.listChats({ onlyGroups: true });
+        let currentUserId = null;
+
+        try {
+            currentUserId = await whatsappPage?.evaluate(() => {
+                const wid = window.WPP?.conn?.getMyUserWid?.();
+                return wid?.toString?.() || null;
+            }) || null;
+        } catch (identityError) {
+            console.warn('[WhatsApp] No se pudo verificar la identidad del usuario para permisos de grupo:', identityError.message);
+        }
+
         const groups = (Array.isArray(chats) ? chats : []).map(chat => {
             const id = chat?.id?._serialized || chat?.id?.user || (typeof chat?.id === 'string' ? chat.id : '');
             const name = chat?.name || chat?.formattedTitle || chat?.groupMetadata?.subject || '';
-            return { whatsapp_id: String(id || '').trim(), name: String(name || '').replace(/\\s+/g, ' ').trim() };
+            const adminStatus = getCurrentUserGroupAdminStatus(chat?.groupMetadata, currentUserId);
+            return {
+                whatsapp_id: String(id || '').trim(),
+                name: String(name || '').replace(/\\s+/g, ' ').trim(),
+                ...(adminStatus === null ? {} : { is_admin: adminStatus }),
+            };
         }).filter(group => group.whatsapp_id.includes('@g.us') && group.name);
+
+        const verifiedAdmins = groups.filter(group => group.is_admin === true).length;
+        console.log('[WhatsApp] Grupos detectados: ' + groups.length + '; administración verificada: ' + verifiedAdmins + '.');
+
         if (!groups.length) { console.log('[WhatsApp] No hay grupos identificables para sincronizar con Laravel.'); return; }
         const response = await sincronizarGruposWhatsApp(groups);
-        console.log('[WhatsApp] Catálogo sincronizado con Laravel: ' + (response.total ?? groups.length) + ' grupos.');
+        console.log('[WhatsApp] Catálogo sincronizado con Laravel: ' + (response.total ?? groups.length) + ' grupos; administradores verificados: ' + verifiedAdmins + '.');
     } catch (error) { console.warn('[WhatsApp] No se pudo sincronizar el catálogo de grupos:', error.message); }
 }
 
