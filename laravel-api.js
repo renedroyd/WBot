@@ -61,6 +61,7 @@ async function sincronizarGruposWhatsApp(groups) {
         method: 'POST',
         body: JSON.stringify({
             groups,
+            agent_instance_id: BOT_INSTANCE_ID,
             ...(SOCIAL_ACCOUNT_ID ? { social_account_id: Number(SOCIAL_ACCOUNT_ID) } : {}),
         }),
     });
