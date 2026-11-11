@@ -96,7 +96,6 @@ function buildInstanceDefinitions(config, baseEnv = process.env, baseDir = ROOT)
                 originUrl,
                 headless: raw.facebook.headless === undefined ? true : Boolean(raw.facebook.headless),
                 sessionDir: resolvePath(baseDir, raw.facebook.sessionDir, './runtime/' + key + '/facebook/session'),
-                profileDir: resolvePath(baseDir, raw.facebook.profileDir, './runtime/' + key + '/facebook/profile'),
                 backupDir: resolvePath(baseDir, raw.facebook.backupDir, './runtime/' + key + '/facebook/backups'),
             };
             facebookAccounts.add(facebookAccountId);
@@ -104,11 +103,11 @@ function buildInstanceDefinitions(config, baseEnv = process.env, baseDir = ROOT)
 
         const dataDir = resolvePath(baseDir, raw.dataDir, './runtime/' + key + '/data');
         const stateFile = resolvePath(baseDir, raw.stateFile, path.join(dataDir, 'publicaciones_enviadas.json'));
+        const profileDir = resolvePath(baseDir, raw.profileDir, './runtime/' + key + '/browser-profile');
         const whatsappConfig = {
             socialAccountId: whatsappAccountId,
             sessionName,
             sessionDir: resolvePath(baseDir, whatsapp.sessionDir, './runtime/' + key + '/whatsapp/session'),
-            profileDir: resolvePath(baseDir, whatsapp.profileDir, './runtime/' + key + '/whatsapp/profile'),
             tokenDir: resolvePath(baseDir, whatsapp.tokenDir, './runtime/' + key + '/whatsapp/tokens'),
             lockFile: resolvePath(baseDir, whatsapp.lockFile, './runtime/' + key + '/whatsapp/session.lock'),
         };
@@ -117,10 +116,10 @@ function buildInstanceDefinitions(config, baseEnv = process.env, baseDir = ROOT)
             dataDir,
             stateFile,
             whatsappConfig.sessionDir,
-            whatsappConfig.profileDir,
             whatsappConfig.tokenDir,
             whatsappConfig.lockFile,
-            ...(facebook ? [facebook.sessionDir, facebook.profileDir, facebook.backupDir] : []),
+            profileDir,
+            ...(facebook ? [facebook.sessionDir, facebook.backupDir] : []),
         ];
 
         for (const item of paths) {
@@ -174,7 +173,7 @@ function buildWorkerEnv(definition, baseEnv = process.env, allDefinitions = []) 
 
     env.WHATSAPP_SESSION_NAME = definition.whatsapp.sessionName;
     env.WHATSAPP_SESSION_DIR = definition.whatsapp.sessionDir;
-    env.WHATSAPP_PROFILE_DIR = definition.whatsapp.profileDir;
+    env.WHATSAPP_PROFILE_DIR = definition.profileDir;
     env.WHATSAPP_TOKEN_DIR = definition.whatsapp.tokenDir;
     env.WHATSAPP_LOCK_FILE = definition.whatsapp.lockFile;
 
@@ -182,7 +181,7 @@ function buildWorkerEnv(definition, baseEnv = process.env, allDefinitions = []) 
     env.FACEBOOK_ORIGEN_URL = facebook?.originUrl || '';
     env.FACEBOOK_HEADLESS = facebook ? String(facebook.headless) : 'true';
     env.FACEBOOK_SESSION_DIR = facebook?.sessionDir || path.join(definition.dataDir, 'facebook-disabled');
-    env.BROWSER_PROFILE_DIR = facebook?.profileDir || definition.whatsapp.profileDir;
+    env.BROWSER_PROFILE_DIR = definition.profileDir;
     env.BROWSER_PROFILE_BACKUP_DIR = facebook?.backupDir || path.join(definition.dataDir, 'browser-backups');
 
     return env;
@@ -193,7 +192,7 @@ function ensureRuntimeDirectories(definition) {
         definition.dataDir,
         path.dirname(definition.stateFile),
         definition.whatsapp.sessionDir,
-        definition.whatsapp.profileDir,
+        definition.profileDir,
         definition.whatsapp.tokenDir,
         path.dirname(definition.whatsapp.lockFile),
     ];
@@ -201,7 +200,6 @@ function ensureRuntimeDirectories(definition) {
     if (definition.facebook) {
         directories.push(
             definition.facebook.sessionDir,
-            definition.facebook.profileDir,
             definition.facebook.backupDir,
         );
     }
@@ -262,14 +260,18 @@ function startManagedWorkers(definitions, baseEnv = process.env) {
         });
 
         worker.child = child;
+        worker.exited = false;
         worker.restartScheduled = false;
 
         child.once('error', error => {
+            worker.exited = true;
+            worker.child = null;
             console.error('[Manager] No se pudo iniciar ' + definition.id + ': ' + error.message);
             scheduleRestart(definition, Date.now() - startedAt);
         });
 
         child.once('exit', (code, signal) => {
+            worker.exited = true;
             worker.child = null;
             if (stopping) return;
             console.warn(
@@ -300,7 +302,7 @@ function startManagedWorkers(definitions, baseEnv = process.env) {
 
         const forceTimer = setTimeout(() => {
             for (const worker of workers.values()) {
-                if (worker.child && !worker.child.killed) worker.child.kill('SIGKILL');
+                if (worker.child && !worker.exited) worker.child.kill('SIGKILL');
             }
         }, 10000);
         forceTimer.unref?.();
