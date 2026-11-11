@@ -13,7 +13,7 @@ function normalizeWid(value) {
 
     return serialized
         .trim()
-        .replace(/:\\d+(?=@)/, '')
+        .replace(/:\d+(?=@)/, '')
         .toLowerCase();
 }
 
