@@ -5708,6 +5708,9 @@ async function crearPublicacionOrigenFacebook(
     console.log(`Grupos : ${gruposSeleccionados.map(g => g.nombre).join(' | ')} (seleccionados en Laravel)`);
     console.log(`Texto  : ${texto}`);
 
+    // El marcador solo pertenece a esta publicación; no debe contaminar el siguiente intento.
+    if (facebookPage) facebookPage.__wbotFacebookPostClickRealizado = false;
+
     await cerrarModalInformacionFacebook(facebookPage, Math.min(FACEBOOK_TIMEOUT_MS, 10000));
 
     const urlActual = facebookPage.url();
@@ -6646,12 +6649,21 @@ async function obtenerOCrearPublicacionOrigenFacebook(publicacion, rutaImagen, e
     console.log('');
     console.log(`[Facebook][V97] Creando UNICA publicación origen para ID ${publicacion.id}.`);
 
-    const resultadoOrigen = await crearPublicacionOrigenFacebook(
-        publicacion,
-        rutaImagen,
-        gruposDestino,
-        estado
-    );
+    let resultadoOrigen;
+    try {
+        resultadoOrigen = await crearPublicacionOrigenFacebook(
+            publicacion,
+            rutaImagen,
+            gruposDestino,
+            estado
+        );
+    } catch (error) {
+        if (facebookPage?.__wbotFacebookPostClickRealizado === true) {
+            error.outcomeUncertain = true;
+            error.message = 'Resultado incierto: Facebook pudo aceptar la publicación origen, pero no se pudo confirmar. ' + error.message;
+        }
+        throw error;
+    }
 
     if (
         resultadoOrigen &&
