@@ -30,6 +30,12 @@ test('returns false when metadata confirms the connected account is not an admin
     }, '12025550123@c.us'), false);
 });
 
+test('matches the current account LID when a group participant is represented by LID', () => {
+    assert.equal(getCurrentUserGroupAdminStatus({
+        participants: [{ id: 'abc123@lid', isAdmin: true }],
+    }, ['12025550123@c.us', 'abc123@lid']), true);
+});
+
 test('returns null when the identity or metadata cannot be verified', () => {
     assert.equal(getCurrentUserGroupAdminStatus(null, '12025550123@c.us'), null);
     assert.equal(getCurrentUserGroupAdminStatus({ participants: [] }, null), null);
