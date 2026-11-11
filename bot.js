@@ -219,24 +219,21 @@ const INTERVALO_ACTUALIZACION_API = 60 * 1000;
 // ARCHIVOS LOCALES
 // ------------------------------------------------------------
 
-const ARCHIVO_ESTADO = path.join(
-    __dirname,
-    'publicaciones_enviadas.json'
-);
+const BOT_DATA_DIR = process.env.BOT_DATA_DIR
+    ? path.resolve(process.env.BOT_DATA_DIR)
+    : __dirname;
+
+const ARCHIVO_ESTADO = process.env.BOT_STATE_FILE
+    ? path.resolve(process.env.BOT_STATE_FILE)
+    : path.join(BOT_DATA_DIR, 'publicaciones_enviadas.json');
 
 // ------------------------------------------------------------
 // CARPETAS
 // ------------------------------------------------------------
 
-const CARPETA_IMAGENES = path.join(
-    __dirname,
-    'imagenes'
-);
+const CARPETA_IMAGENES = path.join(BOT_DATA_DIR, 'imagenes');
 
-const CARPETA_IMAGENES_API = path.join(
-    __dirname,
-    'imagenes_api'
-);
+const CARPETA_IMAGENES_API = path.join(BOT_DATA_DIR, 'imagenes_api');
 
 const WHATSAPP_SESSION_NAME = process.env.WHATSAPP_SESSION_NAME || 'whatsapp-bot';
 
