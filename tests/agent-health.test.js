@@ -88,6 +88,29 @@ test('startup preflight refuses an account not granted to the agent', async () =
     }
 });
 
+
+test('startup preflight refuses a SocialPublicator-revoked session', async () => {
+    const originalFetch = global.fetch;
+    const payload = healthResponse();
+    payload.data.accounts[0].connections[0].revoked_at = '2026-11-11T10:00:00Z';
+
+    global.fetch = async () => ({
+        ok: true,
+        async text() {
+            return JSON.stringify(payload);
+        },
+    });
+
+    try {
+        await assert.rejects(
+            api.consultarEstadoAgente(),
+            /fue revocado desde SocialPublicator/
+        );
+    } finally {
+        global.fetch = originalFetch;
+    }
+});
+
 test('startup preflight refuses to open a session already owned by another instance', async () => {
     const originalFetch = global.fetch;
     const payload = healthResponse();
