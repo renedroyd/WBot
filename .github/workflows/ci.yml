@@ -35,6 +35,7 @@ jobs:
           node --check facebook-pacing.js
           node --check heartbeat.js
           node --check laravel-api.js
+          node --check publication-contract.js
 
       - name: Run tests
         run: npm test
