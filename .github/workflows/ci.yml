@@ -36,6 +36,7 @@ jobs:
           node --check heartbeat.js
           node --check laravel-api.js
           node --check publication-contract.js
+          node --check execution-claim.js
 
       - name: Run tests
         run: npm test

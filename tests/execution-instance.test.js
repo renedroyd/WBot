@@ -19,7 +19,7 @@ test('publication execution lifecycle sends the assigned agent identity', async 
         return {
             ok: true,
             async text() {
-                return JSON.stringify({ data: { id: 9, status: 'running' } });
+                return JSON.stringify({ data: { id: 9, status: 'running' }, claimed: true });
             },
         };
     };
@@ -30,11 +30,12 @@ test('publication execution lifecycle sends the assigned agent identity', async 
             occurrence_id: '3_2026-11-10_12-00',
         }, 'whatsapp', 'group@g.us');
         await api.completarEjecucion(9, 'message-9');
-        await api.fallarEjecucion(9, 'temporary error');
+        await api.fallarEjecucion(9, 'temporary error', { outcomeUncertain: true });
 
         assert.equal(JSON.parse(requests[0].options.body).instance_id, 'agent-wa-01');
         assert.equal(JSON.parse(requests[1].options.body).instance_id, 'agent-wa-01');
         assert.equal(JSON.parse(requests[2].options.body).instance_id, 'agent-wa-01');
+        assert.equal(JSON.parse(requests[2].options.body).outcome_unknown, true);
     } finally {
         global.fetch = originalFetch;
     }

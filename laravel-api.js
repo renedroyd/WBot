@@ -200,12 +200,13 @@ async function completarEjecucion(executionId, externalId = null) {
     });
 }
 
-async function fallarEjecucion(executionId, error) {
+async function fallarEjecucion(executionId, error, options = {}) {
     return request('/api/bot/executions/' + executionId + '/fail', {
         method: 'POST',
         body: JSON.stringify({
             instance_id: BOT_INSTANCE_ID,
             error: String(error || 'Error de ejecución').slice(0, 2000),
+            ...(options.outcomeUncertain === true ? { outcome_unknown: true } : {}),
         }),
     });
 }
