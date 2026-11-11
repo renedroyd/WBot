@@ -145,6 +145,7 @@ function buildInstanceDefinitions(config, baseEnv = process.env, baseDir = ROOT)
             botName: raw.botName || baseEnv.BOT_NAME || 'WBot',
             dataDir,
             stateFile,
+            profileDir,
             whatsapp: whatsappConfig,
             facebook,
         };
