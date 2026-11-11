@@ -108,10 +108,11 @@ async function consultarEstadoAgente() {
             );
         }
 
-        const activeConnection = account.connections?.find(connection =>
+        const conflictingConnection = account.connections?.some(connection =>
             ['connected', 'pending'].includes(connection.status)
+            && connection.agent_instance_id !== BOT_INSTANCE_ID
         );
-        if (activeConnection && activeConnection.agent_instance_id !== BOT_INSTANCE_ID) {
+        if (conflictingConnection) {
             throw new Error(
                 'La cuenta ' + item.id + ' ya está vinculada a otra instancia WBot. ' +
                 'No se iniciará una segunda sesión.'
