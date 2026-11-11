@@ -199,6 +199,8 @@ const LARAVEL_API_URL = (
 const LARAVEL_API_TOKEN =
 process.env.LARAVEL_API_TOKEN || '';
 
+const BOT_PUBLICATIONS_ENDPOINT = process.env.BOT_PUBLICATIONS_ENDPOINT || '/api/bot/publications';
+
 const BOT_NAME = process.env.BOT_NAME || 'WBot';
 const BOT_INSTANCE_ID = process.env.BOT_INSTANCE_ID || BOT_NAME;
 
@@ -1799,7 +1801,7 @@ async function obtenerPublicacionesDesdeLaravel() {
     }
 
     const url =
-    `${LARAVEL_API_URL}/api/bot/publications?instance_id=${encodeURIComponent(BOT_INSTANCE_ID)}`;
+    `${LARAVEL_API_URL}${BOT_PUBLICATIONS_ENDPOINT}?instance_id=${encodeURIComponent(BOT_INSTANCE_ID)}`;
 
     console.log('');
     console.log(
