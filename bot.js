@@ -1284,7 +1284,11 @@ async function sincronizarCatalogoGruposWhatsApp(client) {
         try {
             currentUserId = await whatsappPage?.evaluate(() => {
                 const wid = window.WPP?.conn?.getMyUserWid?.();
-                return wid?.toString?.() || null;
+                const lid = window.WPP?.conn?.getMyUserLid?.();
+                return {
+                    wid: wid?.toString?.() || null,
+                    lid: lid?.toString?.() || null,
+                };
             }) || null;
         } catch (identityError) {
             console.warn('[WhatsApp] No se pudo verificar la identidad del usuario para permisos de grupo:', identityError.message);
@@ -1293,7 +1297,7 @@ async function sincronizarCatalogoGruposWhatsApp(client) {
         const groups = (Array.isArray(chats) ? chats : []).map(chat => {
             const id = chat?.id?._serialized || chat?.id?.user || (typeof chat?.id === 'string' ? chat.id : '');
             const name = chat?.name || chat?.formattedTitle || chat?.groupMetadata?.subject || '';
-            const adminStatus = getCurrentUserGroupAdminStatus(chat?.groupMetadata, currentUserId);
+            const adminStatus = getCurrentUserGroupAdminStatus(chat?.groupMetadata, [currentUserId?.wid, currentUserId?.lid]);
             return {
                 whatsapp_id: String(id || '').trim(),
                 name: String(name || '').replace(/\s+/g, ' ').trim(),
