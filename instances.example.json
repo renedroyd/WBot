@@ -1,0 +1,27 @@
+{
+  "instances": [
+    {
+      "key": "ventas",
+      "id": "wbot-ventas",
+      "tokenEnv": "WBOT_VENTAS_TOKEN",
+      "whatsapp": {
+        "socialAccountId": 101,
+        "sessionName": "whatsapp-ventas"
+      },
+      "facebook": {
+        "socialAccountId": 201,
+        "originUrl": "https://www.facebook.com/",
+        "headless": false
+      }
+    },
+    {
+      "key": "mayorista",
+      "id": "wbot-mayorista",
+      "tokenEnv": "WBOT_MAYORISTA_TOKEN",
+      "whatsapp": {
+        "socialAccountId": 102,
+        "sessionName": "whatsapp-mayorista"
+      }
+    }
+  ]
+}
