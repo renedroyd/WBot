@@ -56,6 +56,82 @@ async function request(path, options = {}) {
     return body;
 }
 
+
+async function consultarEstadoAgente() {
+    if (!SOCIAL_ACCOUNT_ID && !FACEBOOK_SOCIAL_ACCOUNT_ID) {
+        return { skipped: true, reason: 'No hay cuentas sociales vinculadas a SocialPublicator.' };
+    }
+
+    const data = await request(
+        '/api/bot/agent/health?instance_id=' + encodeURIComponent(BOT_INSTANCE_ID),
+        { method: 'GET' }
+    ).then(response => response.data);
+
+    if (!data || data.instance_id !== BOT_INSTANCE_ID || !Array.isArray(data.accounts)) {
+        throw new Error('SocialPublicator devolvió una respuesta de diagnóstico de agente no válida.');
+    }
+
+    const expected = [];
+    if (SOCIAL_ACCOUNT_ID) {
+        expected.push({
+            id: SOCIAL_ACCOUNT_ID,
+            platform: 'whatsapp',
+            accountType: 'whatsapp_account',
+            label: 'WhatsApp',
+        });
+    }
+    if (FACEBOOK_SOCIAL_ACCOUNT_ID) {
+        expected.push({
+            id: FACEBOOK_SOCIAL_ACCOUNT_ID,
+            platform: 'facebook',
+            accountType: 'facebook_profile',
+            label: 'Facebook',
+        });
+    }
+
+    for (const item of expected) {
+        if (!/^\d+$/.test(String(item.id)) || Number(item.id) <= 0) {
+            throw new Error('El identificador de cuenta configurado para ' + item.label + ' no es válido.');
+        }
+
+        const account = data.accounts.find(candidate => Number(candidate.id) === Number(item.id));
+        if (!account) {
+            throw new Error(
+                'La cuenta ' + item.id + ' de ' + item.label +
+                ' no está autorizada para la instancia ' + BOT_INSTANCE_ID + ' en SocialPublicator.'
+            );
+        }
+
+        if (account.platform !== item.platform || account.account_type !== item.accountType) {
+            throw new Error(
+                'La cuenta ' + item.id + ' no corresponde al tipo esperado para ' + item.label + '.'
+            );
+        }
+
+        const activeConnection = account.connections?.find(connection =>
+            ['connected', 'pending'].includes(connection.status)
+        );
+        if (activeConnection && activeConnection.agent_instance_id !== BOT_INSTANCE_ID) {
+            throw new Error(
+                'La cuenta ' + item.id + ' ya está vinculada a otra instancia WBot. ' +
+                'No se iniciará una segunda sesión.'
+            );
+        }
+    }
+
+    return {
+        skipped: false,
+        authorizationMode: data.authorization_mode,
+        workspaceId: data.workspace_id,
+        instanceId: data.instance_id,
+        accounts: expected.map(item => ({
+            id: Number(item.id),
+            platform: item.platform,
+            status: data.accounts.find(account => Number(account.id) === Number(item.id)).status,
+        })),
+    };
+}
+
 async function sincronizarGruposWhatsApp(groups) {
     return request('/api/bot/whatsapp/groups/sync', {
         method: 'POST',
@@ -160,6 +236,7 @@ async function fallarComando(commandId, error, retry = true) {
 }
 
 module.exports = {
+    consultarEstadoAgente,
     sincronizarGruposWhatsApp,
     publicarEstadoConexionWhatsApp,
     publicarEstadoConexionFacebook,
