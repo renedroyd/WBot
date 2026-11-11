@@ -1,5 +1,7 @@
 // V7 - selector estricto del botón final; conserva cola concurrente y WhatsApp secuencial\n'use strict';
 
+const { normalizePublication } = require('./publication-contract');
+
 require('dotenv').config();
 
 const wppconnect = require('@wppconnect-team/wppconnect');
@@ -1797,7 +1799,7 @@ async function obtenerPublicacionesDesdeLaravel() {
     }
 
     const url =
-    `${LARAVEL_API_URL}/api/bot/publicaciones?instance_id=${encodeURIComponent(BOT_INSTANCE_ID)}`;
+    `${LARAVEL_API_URL}/api/bot/publications?instance_id=${encodeURIComponent(BOT_INSTANCE_ID)}`;
 
     console.log('');
     console.log(
@@ -1879,6 +1881,7 @@ async function obtenerPublicacionesDesdeLaravel() {
 
         const publicacionesValidas =
         payload.data
+        .map(normalizePublication)
         .filter(
             publicacion =>
             validarPublicacion(
