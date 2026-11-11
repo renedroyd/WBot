@@ -37,6 +37,7 @@ jobs:
           node --check laravel-api.js
           node --check publication-contract.js
           node --check execution-claim.js
+          node --check whatsapp-group-admin.js
 
       - name: Run tests
         run: npm test
