@@ -1296,7 +1296,7 @@ async function sincronizarCatalogoGruposWhatsApp(client) {
             const adminStatus = getCurrentUserGroupAdminStatus(chat?.groupMetadata, currentUserId);
             return {
                 whatsapp_id: String(id || '').trim(),
-                name: String(name || '').replace(/\\s+/g, ' ').trim(),
+                name: String(name || '').replace(/\s+/g, ' ').trim(),
                 ...(adminStatus === null ? {} : { is_admin: adminStatus }),
             };
         }).filter(group => group.whatsapp_id.includes('@g.us') && group.name);
