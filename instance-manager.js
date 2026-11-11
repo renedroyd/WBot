@@ -29,6 +29,20 @@ function resolvePath(baseDir, value, fallback) {
     return path.resolve(baseDir, value || fallback);
 }
 
+function pathsOverlap(first, second) {
+    const a = path.resolve(first).toLowerCase();
+    const b = path.resolve(second).toLowerCase();
+    const aToB = path.relative(a, b);
+    const bToA = path.relative(b, a);
+    const isInside = relative => relative === '' || (
+        relative !== '..'
+        && !relative.startsWith('..' + path.sep)
+        && !path.isAbsolute(relative)
+    );
+
+    return isInside(aToB) || isInside(bToA);
+}
+
 function buildInstanceDefinitions(config, baseEnv = process.env, baseDir = ROOT) {
     if (!config || !Array.isArray(config.instances) || config.instances.length === 0) {
         throw new Error('instances.json debe contener al menos una instancia en "instances".');
@@ -45,7 +59,7 @@ function buildInstanceDefinitions(config, baseEnv = process.env, baseDir = ROOT)
     const whatsappAccounts = new Set();
     const facebookAccounts = new Set();
     const sessionNames = new Set();
-    const runtimePaths = new Set();
+    const runtimePathsByInstance = [];
 
     return config.instances.map((raw, index) => {
         const label = 'instances[' + index + ']';
@@ -122,13 +136,25 @@ function buildInstanceDefinitions(config, baseEnv = process.env, baseDir = ROOT)
             ...(facebook ? [facebook.sessionDir, facebook.backupDir] : []),
         ];
 
-        for (const item of paths) {
-            const normalized = path.normalize(item).toLowerCase();
-            if (runtimePaths.has(normalized)) {
-                throw new Error('Ruta de runtime compartida entre instancias: ' + item);
-            }
-            runtimePaths.add(normalized);
+        const localPaths = new Set(paths.map(item => path.normalize(item).toLowerCase()));
+        if (localPaths.size !== paths.length) {
+            throw new Error('La instancia ' + id + ' contiene rutas runtime duplicadas.');
         }
+
+        for (const previous of runtimePathsByInstance) {
+            for (const currentPath of paths) {
+                const conflictingPath = previous.paths.find(previousPath =>
+                    pathsOverlap(previousPath, currentPath)
+                );
+                if (conflictingPath) {
+                    throw new Error(
+                        'Ruta de runtime compartida entre instancias ' + previous.id +
+                        ' y ' + id + ': ' + currentPath
+                    );
+                }
+            }
+        }
+        runtimePathsByInstance.push({ id, paths });
 
         ids.add(id);
         keys.add(key.toLowerCase());
