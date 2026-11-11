@@ -114,7 +114,7 @@ async function consultarEstadoAgente() {
             .filter(connection => connection.type === item.connectionType);
 
         const revokedConnection = relevantConnections.some(connection =>
-            connection.status === 'revoked' || Boolean(connection.revoked_at)
+            ['workspace_admin_revoked', 'parent_profile_revoked'].includes(connection.last_error_code)
         );
         if (revokedConnection) {
             throw new Error(
