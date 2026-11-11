@@ -23,8 +23,8 @@ test('normalizes the versioned English publication contract for the existing WBo
     assert.equal(normalized.texto, 'Oferta de prueba');
     assert.equal(normalized.imagen, 'https://cdn.example.test/item.jpg');
     assert.equal(normalized.destino, 'both');
-    assert.equal(normalized.whatsapp_grupos[0].whatsapp_id, '120@g.us');
-    assert.equal(normalized.facebook_grupos[0].facebook_id, '9988');
+    assert.equal(normalized.whatsapp_groups[0].whatsapp_id, '120@g.us');
+    assert.equal(normalized.facebook_groups[0].facebook_id, '9988');
 });
 
 test('preserves compatibility with the legacy Spanish publication contract', () => {
