@@ -77,6 +77,7 @@ async function consultarEstadoAgente() {
             id: SOCIAL_ACCOUNT_ID,
             platform: 'whatsapp',
             accountType: 'whatsapp_account',
+            connectionType: 'wppconnect_qr',
             label: 'WhatsApp',
         });
     }
@@ -85,6 +86,7 @@ async function consultarEstadoAgente() {
             id: FACEBOOK_SOCIAL_ACCOUNT_ID,
             platform: 'facebook',
             accountType: 'facebook_profile',
+            connectionType: 'browser_session',
             label: 'Facebook',
         });
     }
@@ -108,7 +110,20 @@ async function consultarEstadoAgente() {
             );
         }
 
-        const conflictingConnection = account.connections?.some(connection =>
+        const relevantConnections = (account.connections || [])
+            .filter(connection => connection.type === item.connectionType);
+
+        const revokedConnection = relevantConnections.some(connection =>
+            connection.status === 'revoked' || Boolean(connection.revoked_at)
+        );
+        if (revokedConnection) {
+            throw new Error(
+                'El acceso de ' + item.label + ' fue revocado desde SocialPublicator. ' +
+                'Un administrador debe reactivarlo antes de iniciar WBot.'
+            );
+        }
+
+        const conflictingConnection = relevantConnections.some(connection =>
             ['connected', 'pending'].includes(connection.status)
             && connection.agent_instance_id !== BOT_INSTANCE_ID
         );
