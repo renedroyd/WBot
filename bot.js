@@ -26,6 +26,7 @@ const {
 } = require('./heartbeat');
 
 const {
+    consultarEstadoAgente,
     sincronizarGruposWhatsApp,
     publicarEstadoConexionWhatsApp,
     publicarEstadoConexionFacebook,
@@ -7629,6 +7630,15 @@ async function iniciar() {
     adquirirBloqueoWhatsApp();
 
     validarConfiguracion();
+
+    const estadoAgente = await consultarEstadoAgente();
+    if (!estadoAgente.skipped) {
+        console.log('[SocialPublicator] Preflight correcto.');
+        console.log(`[SocialPublicator] Workspace: ${estadoAgente.workspaceId}; instancia: ${estadoAgente.instanceId}; autorización: ${estadoAgente.authorizationMode}.`);
+        for (const cuenta of estadoAgente.accounts) {
+            console.log(`[SocialPublicator] Cuenta ${cuenta.platform} #${cuenta.id}: ${cuenta.status}.`);
+        }
+    }
 
     console.log('');
     console.log(
