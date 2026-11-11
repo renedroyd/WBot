@@ -38,6 +38,7 @@ jobs:
           node --check publication-contract.js
           node --check execution-claim.js
           node --check whatsapp-group-admin.js
+          node --check instance-manager.js
 
       - name: Run tests
         run: npm test

@@ -16,3 +16,6 @@ whatsapp_session/
 .vscode/
 
 # Comentarios con #
+# Runtime multi-instancia (no versionar sesiones ni estado local)
+instances.json
+runtime/
