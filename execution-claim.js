@@ -8,7 +8,7 @@
 function assertExecutionClaim(response) {
     const execution = response?.data;
 
-    if (!execution || !Number.isInteger(Number(execution.id))) {
+    if (!execution || !Number.isInteger(Number(execution.id)) || Number(execution.id) <= 0) {
         throw new Error('SocialPublicator no devolvió una ejecución válida; se cancela el envío.');
     }
 
