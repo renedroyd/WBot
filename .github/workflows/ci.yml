@@ -43,8 +43,7 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Report dependency vulnerabilities
-        continue-on-error: true
+      - name: Audit dependencies (high and critical findings fail CI)
         run: |
           npm audit --json > npm-audit.json || true
           node -e "
@@ -62,3 +61,4 @@ jobs:
               console.log('No se pudo interpretar el resultado de npm audit:', error.message);
             }
           "
+          npm audit --audit-level=high
