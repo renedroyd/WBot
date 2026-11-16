@@ -63,3 +63,24 @@ test('leaves invalid payloads untouched for the caller validation to reject', ()
     assert.equal(normalizePublication(null), null);
     assert.equal(normalizePublication('invalid'), 'invalid');
 });
+
+test('normalizes the shared SocialPublicator v1 fixture used by campaign delivery', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const fixture = JSON.parse(fs.readFileSync(
+        path.join(__dirname, 'fixtures', 'social-publicator-publication-v1.json'),
+        'utf8'
+    ));
+
+    const normalized = normalizePublication(fixture);
+
+    assert.equal(normalized.ocurrencia_id, fixture.occurrence_id);
+    assert.equal(normalized.fecha, fixture.date);
+    assert.equal(normalized.hora, fixture.time);
+    assert.equal(normalized.texto, fixture.text);
+    assert.equal(normalized.imagen, fixture.image);
+    assert.equal(normalized.destino, fixture.destination);
+    assert.deepEqual(normalized.whatsapp_groups, fixture.whatsapp_groups);
+    assert.deepEqual(normalized.facebook_groups, fixture.facebook_groups);
+    assert.equal(Object.hasOwn(normalized, 'facebook_page_destinations'), false);
+});
