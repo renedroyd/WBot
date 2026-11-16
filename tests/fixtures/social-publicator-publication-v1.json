@@ -1,0 +1,32 @@
+{
+  "id": 41,
+  "occurrence_id": "41_2026-10-07_12-00",
+  "date": "2026-10-07",
+  "time": "12:00",
+  "image": "https://cdn.example.test/catalog/product-41.jpg",
+  "text": "Oferta de prueba de integración",
+  "destination": "both",
+  "recurrence_type": "none",
+  "recurrence_days": null,
+  "interval_hours": null,
+  "interval_minutes": null,
+  "recurrence_start_time": null,
+  "recurrence_end_time": null,
+  "end_date": null,
+  "whatsapp_groups": [
+    {
+      "id": 4,
+      "whatsapp_id": "120@g.us",
+      "name": "Grupo WhatsApp",
+      "is_admin": true
+    }
+  ],
+  "facebook_groups": [
+    {
+      "id": 8,
+      "facebook_id": "9988",
+      "name": "Grupo Facebook",
+      "url": "https://facebook.com/groups/9988"
+    }
+  ]
+}
