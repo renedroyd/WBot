@@ -47,3 +47,10 @@ Se conservan los campos originales para que los siguientes canales no pierdan in
 ## Validación
 
 `npm test` cubre los payloads modernos y heredados. CI comprueba sintaxis y ejecuta la suite en Node.js 22 y 26.
+
+
+## Shared contract fixture
+
+WBot's publication-contract tests consume the deterministic fixture at `tests/fixtures/social-publicator-publication-v1.json`. SocialPublicator's Bot API feature tests use the same field shape and validate the corresponding payload, including destination arrays.
+
+The fixture covers WhatsApp Groups and Facebook Groups only. Official Facebook Page delivery is intentionally handled by SocialPublicator's Meta Graph API dispatcher and is not passed to WBot; Page access tokens never enter the bot publication contract.
