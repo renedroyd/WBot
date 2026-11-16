@@ -1,8 +1,8 @@
 {
   "id": 41,
-  "occurrence_id": "41_2026-11-16_10-30",
-  "date": "2026-11-16",
-  "time": "10:30",
+  "occurrence_id": "41_2026-10-07_12-00",
+  "date": "2026-10-07",
+  "time": "12:00",
   "image": "https://cdn.example.test/catalog/product-41.jpg",
   "text": "Oferta de prueba de integración",
   "destination": "both",
